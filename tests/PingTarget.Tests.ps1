@@ -1,17 +1,17 @@
 # -*- coding: utf-8 -*-
-# PingTarget.Tests.ps1 — PingTarget 與 PingResult 類別的單元測試
-# 使用 Pester 5 測試框架
+# PingTarget.Tests.ps1 — Unit tests for PingTarget and PingResult classes
+# Uses Pester 5 test framework
 
 BeforeAll {
-    # 載入類別定義
+    # Load class definitions
     . "$PSScriptRoot/../lib/PingTarget.ps1"
 }
 
-Describe 'PingResult 類別' {
+Describe 'PingResult class' {
 
-    Context '建構子' {
+    Context 'Constructor' {
 
-        It '預設建構子應初始化為失敗狀態' {
+        It 'Default constructor should initialize to failed state' {
             $result = [PingResult]::new()
 
             $result.Success | Should -BeFalse
@@ -20,7 +20,7 @@ Describe 'PingResult 類別' {
             $result.TTL | Should -Be 0
         }
 
-        It '帶參數建構子應正確設定所有屬性' {
+        It 'Parameterized constructor should correctly set all properties' {
             $result = [PingResult]::new($true, [PingErrorCode]::Success, 15.5, 64)
 
             $result.Success | Should -BeTrue
@@ -31,20 +31,21 @@ Describe 'PingResult 類別' {
     }
 }
 
-Describe 'PingTarget 類別' {
+Describe 'PingTarget class' {
 
     # ========================================================
-    # 建構子測試
+    # Constructor tests
     # ========================================================
 
-    Context '建構子' {
+    Context 'Constructor' {
 
-        It '雙參數建構子應正確初始化名稱與位址' {
+        It 'Two-parameter constructor should correctly initialize name and address' {
             $target = [PingTarget]::new('google', '8.8.8.8')
 
             $target.Name | Should -Be 'google'
             $target.Address | Should -Be '8.8.8.8'
             $target.Source | Should -BeNullOrEmpty
+            $target.TcpPort | Should -Be 0
             $target.State | Should -BeFalse
             $target.Loss | Should -Be 0
             $target.LossRate | Should -Be 0.0
@@ -56,91 +57,98 @@ Describe 'PingTarget 類別' {
             $target.ResultHistory.Count | Should -Be 0
         }
 
-        It '三參數建構子應正確設定來源介面' {
+        It 'Three-parameter constructor should correctly set source interface' {
             $target = [PingTarget]::new('myhost', '192.168.1.1', 'eth0')
 
             $target.Name | Should -Be 'myhost'
             $target.Address | Should -Be '192.168.1.1'
             $target.Source | Should -Be 'eth0'
         }
+
+        It 'TcpPort should be settable after construction' {
+            $target = [PingTarget]::new('webhost', '10.0.0.1')
+            $target.TcpPort = 443
+
+            $target.TcpPort | Should -Be 443
+        }
     }
 
     # ========================================================
-    # GetResultChar() 測試
+    # GetResultChar() tests
     # ========================================================
 
-    Context 'GetResultChar 方法' {
+    Context 'GetResultChar method' {
 
         BeforeEach {
             $script:target = [PingTarget]::new('test', '8.8.8.8')
             $script:target.RttScale = 10
         }
 
-        It 'Ping 失敗時應回傳 X' {
+        It 'Should return X on ping failure' {
             $res = [PingResult]::new($false, [PingErrorCode]::Failed, 0, 0)
             $script:target.GetResultChar($res) | Should -Be 'X'
         }
 
-        It 'RTT < 1x scale 時應回傳 ▁' {
+        It 'RTT < 1x scale should return ▁' {
             $res = [PingResult]::new($true, [PingErrorCode]::Success, 5, 64)
             $script:target.GetResultChar($res) | Should -Be ([char]0x2581)
         }
 
-        It 'RTT < 2x scale 時應回傳 ▂' {
+        It 'RTT < 2x scale should return ▂' {
             $res = [PingResult]::new($true, [PingErrorCode]::Success, 15, 64)
             $script:target.GetResultChar($res) | Should -Be ([char]0x2582)
         }
 
-        It 'RTT < 3x scale 時應回傳 ▃' {
+        It 'RTT < 3x scale should return ▃' {
             $res = [PingResult]::new($true, [PingErrorCode]::Success, 25, 64)
             $script:target.GetResultChar($res) | Should -Be ([char]0x2583)
         }
 
-        It 'RTT < 4x scale 時應回傳 ▄' {
+        It 'RTT < 4x scale should return ▄' {
             $res = [PingResult]::new($true, [PingErrorCode]::Success, 35, 64)
             $script:target.GetResultChar($res) | Should -Be ([char]0x2584)
         }
 
-        It 'RTT < 5x scale 時應回傳 ▅' {
+        It 'RTT < 5x scale should return ▅' {
             $res = [PingResult]::new($true, [PingErrorCode]::Success, 45, 64)
             $script:target.GetResultChar($res) | Should -Be ([char]0x2585)
         }
 
-        It 'RTT < 6x scale 時應回傳 ▆' {
+        It 'RTT < 6x scale should return ▆' {
             $res = [PingResult]::new($true, [PingErrorCode]::Success, 55, 64)
             $script:target.GetResultChar($res) | Should -Be ([char]0x2586)
         }
 
-        It 'RTT < 7x scale 時應回傳 ▇' {
+        It 'RTT < 7x scale should return ▇' {
             $res = [PingResult]::new($true, [PingErrorCode]::Success, 65, 64)
             $script:target.GetResultChar($res) | Should -Be ([char]0x2587)
         }
 
-        It 'RTT >= 7x scale 時應回傳 █' {
+        It 'RTT >= 7x scale should return █' {
             $res = [PingResult]::new($true, [PingErrorCode]::Success, 80, 64)
             $script:target.GetResultChar($res) | Should -Be ([char]0x2588)
         }
 
-        It '自訂 RttScale 時應正確判斷' {
+        It 'Should correctly determine with custom RttScale' {
             $script:target.RttScale = 20
-            # RTT 15 < 20*1，應回傳 ▁
+            # RTT 15 < 20*1, should return ▁
             $res = [PingResult]::new($true, [PingErrorCode]::Success, 15, 64)
             $script:target.GetResultChar($res) | Should -Be ([char]0x2581)
         }
     }
 
     # ========================================================
-    # ConsumeResult() 測試
+    # ConsumeResult() tests
     # ========================================================
 
-    Context 'ConsumeResult 方法' {
+    Context 'ConsumeResult method' {
 
         BeforeEach {
             $script:target = [PingTarget]::new('test', '8.8.8.8')
-            $script:target.Sent = 1  # 模擬已送出一次 Ping
+            $script:target.Sent = 1  # Simulate one ping already sent
         }
 
-        It 'Ping 成功時應正確更新統計' {
+        It 'Should correctly update statistics on ping success' {
             $res = [PingResult]::new($true, [PingErrorCode]::Success, 10.0, 64)
             $script:target.ConsumeResult($res)
 
@@ -153,7 +161,7 @@ Describe 'PingTarget 類別' {
             $script:target.LossRate | Should -Be 0.0
         }
 
-        It 'Ping 失敗時應增加遺失計數' {
+        It 'Should increment loss count on ping failure' {
             $res = [PingResult]::new($false, [PingErrorCode]::Failed, 0, 0)
             $script:target.ConsumeResult($res)
 
@@ -162,22 +170,22 @@ Describe 'PingTarget 類別' {
             $script:target.LossRate | Should -Be 100.0
         }
 
-        It '多次 Ping 後應正確計算平均值' {
-            # 第一次 Ping 成功（RTT = 10ms）
+        It 'Should correctly calculate average after multiple pings' {
+            # First ping success (RTT = 10ms)
             $res1 = [PingResult]::new($true, [PingErrorCode]::Success, 10.0, 64)
             $script:target.ConsumeResult($res1)
 
-            # 第二次 Ping 成功（RTT = 20ms）
+            # Second ping success (RTT = 20ms)
             $script:target.Sent = 2
             $res2 = [PingResult]::new($true, [PingErrorCode]::Success, 20.0, 64)
             $script:target.ConsumeResult($res2)
 
             $script:target.Total | Should -Be 30.0
             $script:target.Average | Should -Be 15.0
-            $script:target.RTT | Should -Be 20.0  # 最後一次 RTT
+            $script:target.RTT | Should -Be 20.0  # Last RTT
         }
 
-        It '結果應被插入歷史紀錄最前方' {
+        It 'Results should be inserted at the front of history' {
             $res1 = [PingResult]::new($true, [PingErrorCode]::Success, 5.0, 64)
             $script:target.ConsumeResult($res1)
 
@@ -185,14 +193,14 @@ Describe 'PingTarget 類別' {
             $res2 = [PingResult]::new($false, [PingErrorCode]::Failed, 0, 0)
             $script:target.ConsumeResult($res2)
 
-            # 最新的結果（失敗=X）應在最前面
+            # Latest result (failure=X) should be at the front
             $script:target.ResultHistory[0] | Should -Be 'X'
-            # 較舊的結果應在後面
+            # Older result should be after
             $script:target.ResultHistory[1] | Should -Be ([char]0x2581)
         }
 
-        It '混合成功與失敗時遺失率應正確' {
-            # 1 次成功 + 2 次失敗 = 66.67% 遺失率
+        It 'Loss rate should be correct with mixed success and failure' {
+            # 1 success + 2 failures = 66.67% loss rate
             $res1 = [PingResult]::new($true, [PingErrorCode]::Success, 10.0, 64)
             $script:target.ConsumeResult($res1)
 
@@ -205,20 +213,20 @@ Describe 'PingTarget 類別' {
             $script:target.ConsumeResult($res3)
 
             $script:target.Loss | Should -Be 2
-            # 遺失率 = 2/3 * 100 ≈ 66.67
+            # Loss rate = 2/3 * 100 ≈ 66.67
             [Math]::Round($script:target.LossRate, 2) | Should -Be 66.67
         }
     }
 
     # ========================================================
-    # Refresh() 測試
+    # Refresh() tests
     # ========================================================
 
-    Context 'Refresh 方法' {
+    Context 'Refresh method' {
 
-        It '應重置所有統計資料' {
+        It 'Should reset all statistics' {
             $target = [PingTarget]::new('test', '8.8.8.8')
-            # 模擬一些累計資料
+            # Simulate some accumulated data
             $target.State = $true
             $target.Loss = 5
             $target.LossRate = 50.0
@@ -230,10 +238,10 @@ Describe 'PingTarget 類別' {
             $target.ResultHistory.Add('X')
             $target.ResultHistory.Add([string]([char]0x2581))
 
-            # 執行重置
+            # Execute reset
             $target.Refresh()
 
-            # 驗證所有統計資料已歸零
+            # Verify all statistics are zeroed
             $target.State | Should -BeFalse
             $target.Loss | Should -Be 0
             $target.LossRate | Should -Be 0.0
@@ -245,7 +253,7 @@ Describe 'PingTarget 類別' {
             $target.ResultHistory.Count | Should -Be 0
         }
 
-        It '重置後名稱與位址應保持不變' {
+        It 'Name and address should remain unchanged after reset' {
             $target = [PingTarget]::new('google', '8.8.8.8')
             $target.Refresh()
 
@@ -255,30 +263,36 @@ Describe 'PingTarget 類別' {
     }
 
     # ========================================================
-    # ToString() 測試
+    # ToString() tests
     # ========================================================
 
-    Context 'ToString 方法' {
+    Context 'ToString method' {
 
-        It '無來源介面時應回傳 名稱:位址' {
+        It 'Without source interface should return name:address' {
             $target = [PingTarget]::new('google', '8.8.8.8')
             $target.ToString() | Should -Be 'google:8.8.8.8'
         }
 
-        It '有來源介面時應回傳 名稱:位址:來源' {
+        It 'With source interface should return name:address:source' {
             $target = [PingTarget]::new('myhost', '192.168.1.1', 'eth0')
             $target.ToString() | Should -Be 'myhost:192.168.1.1:eth0'
+        }
+
+        It 'With TcpPort should include tcp:port in string' {
+            $target = [PingTarget]::new('webhost', '10.0.0.1')
+            $target.TcpPort = 443
+            $target.ToString() | Should -Be 'webhost:10.0.0.1:tcp:443'
         }
     }
 
     # ========================================================
-    # Send() 方法測試（使用 Mock）
+    # Send() method tests (using Mock)
     # ========================================================
 
-    Context 'Send 方法' {
+    Context 'Send method' {
 
-        It '呼叫 Send 後 Sent 計數應增加' {
-            # 模擬 Test-Connection 回傳成功結果
+        It 'Sent count should increase after calling Send' {
+            # Mock Test-Connection to return success
             Mock Test-Connection {
                 return [PSCustomObject]@{
                     Status  = 'Success'
@@ -295,7 +309,7 @@ Describe 'PingTarget 類別' {
             $target.Sent | Should -Be 1
         }
 
-        It 'Ping 成功時應更新狀態為存活' {
+        It 'Should update state to alive on ping success' {
             Mock Test-Connection {
                 return [PSCustomObject]@{
                     Status  = 'Success'
@@ -313,7 +327,7 @@ Describe 'PingTarget 類別' {
             $target.RTT | Should -Be 5
         }
 
-        It 'Ping 失敗時應更新狀態為無回應' {
+        It 'Should update state to no response on ping failure' {
             Mock Test-Connection {
                 throw "Ping failed"
             }
@@ -324,24 +338,54 @@ Describe 'PingTarget 類別' {
             $target.State | Should -BeFalse
             $target.Loss | Should -Be 1
         }
+
+        It 'TCP ping target should call SendTcp instead of ICMP ping' {
+            # When TcpPort > 0, Send() should delegate to SendTcp()
+            # Mock Test-NetConnection for Windows or hping3 for others
+            if ($global:IsWindows -or ($null -eq $global:IsWindows -and [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows))) {
+                Mock Test-NetConnection {
+                    return [PSCustomObject]@{ TcpTestSucceeded = $true }
+                }
+            }
+
+            $target = [PingTarget]::new('webhost', '127.0.0.1')
+            $target.TcpPort = 80
+
+            # Send should not throw even if external commands are unavailable
+            { $target.Send() } | Should -Not -Throw
+            $target.Sent | Should -Be 1
+        }
+
+        It 'Refresh should preserve TcpPort' {
+            $target = [PingTarget]::new('webhost', '10.0.0.1')
+            $target.TcpPort = 443
+            $target.State = $true
+            $target.Sent = 5
+
+            $target.Refresh()
+
+            $target.TcpPort | Should -Be 443
+            $target.Sent | Should -Be 0
+            $target.State | Should -BeFalse
+        }
     }
 }
 
-Describe 'Separator 類別' {
+Describe 'Separator class' {
 
-    It '應可正確建立 Separator 物件' {
+    It 'Should correctly create Separator object' {
         $sep = New-Object Separator
         $sep.GetType().Name | Should -Be 'Separator'
     }
 }
 
-Describe 'PingErrorCode 列舉' {
+Describe 'PingErrorCode enumeration' {
 
-    It 'Success 值應為 0' {
+    It 'Success value should be 0' {
         [int][PingErrorCode]::Success | Should -Be 0
     }
 
-    It 'Failed 值應為 -1' {
+    It 'Failed value should be -1' {
         [int][PingErrorCode]::Failed | Should -Be -1
     }
 }

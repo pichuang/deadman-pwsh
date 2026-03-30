@@ -1,82 +1,85 @@
 # -*- coding: utf-8 -*-
-# ConfigParser.ps1 — 設定檔解析函式
-# 改寫自 https://github.com/upa/deadman (MIT License)
-# 完全支援 PowerShell 7+
+# ConfigParser.ps1 — Configuration file parsing function
+# Ported from https://github.com/upa/deadman (MIT License)
+# Fully supports PowerShell 7+
 
 # ============================================================
-# Read-DeadmanConfig — 解析 deadman 設定檔
+# Read-DeadmanConfig — Parse deadman configuration file
 # ============================================================
-# 設定檔格式（與原版相容）：
-#   名稱    位址    [key=value ...]
-#   ---                              （分隔線）
-#   # 這是註解                        （忽略）
+# Configuration file format (compatible with original):
+#   name    address    [key=value ...]
+#   ---                              (separator)
+#   # this is a comment               (ignored)
 #
-# 支援的選項：
-#   source=介面名稱   — 指定來源介面
-#   os=作業系統        — 原版用，此版本忽略
-#   relay=主機         — 原版用，此版本忽略（SSH relay）
-#   via=方式           — 原版用，此版本忽略（snmp/netns/vrf）
-#   其他 key=value     — 解析但忽略，不會報錯
+# Supported options:
+#   source=interface   — specify source interface
+#   via=tcp            — use TCP ping instead of ICMP
+#   port=number        — TCP port for TCP ping (requires via=tcp)
+#   os=operating_system — used by original, ignored in this version
+#   relay=host         — used by original, ignored (SSH relay)
+#   other key=value    — parsed but ignored, no error
 # ============================================================
 
 function Read-DeadmanConfig {
     [CmdletBinding()]
     param(
-        # 設定檔路徑
+        # Configuration file path
         [Parameter(Mandatory)]
         [string]$Path,
 
-        # RTT 柱狀圖刻度（毫秒），傳入 PingTarget 物件
+        # RTT bar chart scale (milliseconds), passed to PingTarget objects
         [int]$RttScale = 10
     )
 
-    # 驗證設定檔是否存在
+    # Verify configuration file exists
     if (-not (Test-Path -LiteralPath $Path)) {
-        throw "設定檔不存在: $Path"
+        throw "Configuration file not found: $Path"
     }
 
-    # 讀取所有行
+    # Read all lines
     $lines = Get-Content -LiteralPath $Path -Encoding UTF8
 
-    # 儲存解析結果的陣列
+    # Array to store parsed results
     $targets = [System.Collections.Generic.List[object]]::new()
 
     foreach ($rawLine in $lines) {
-        # 將 Tab 替換為空格
+        # Replace tabs with spaces
         $line = $rawLine -replace '\t', ' '
-        # 合併多餘空格
+        # Collapse multiple spaces
         $line = $line -replace '\s+', ' '
-        # 移除註解（以 # 開頭）
+        # Remove comments (lines starting with #)
         $line = $line -replace '^\s*#.*', ''
-        # 移除行內註解（以 ; # 開頭的部分）
+        # Remove inline comments (starting with ; #)
         $line = $line -replace ';\s*#.*', ''
-        # 去除首尾空白
+        # Trim leading and trailing whitespace
         $line = $line.Trim()
 
-        # 跳過空行
+        # Skip empty lines
         if ([string]::IsNullOrWhiteSpace($line)) {
             continue
         }
 
-        # 以空格分割欄位
+        # Split fields by whitespace
         $parts = $line -split '\s+'
         $name = $parts[0]
 
-        # 檢查是否為分隔線（由連字號組成，如 --- 或 -----）
+        # Check if line is a separator (composed of hyphens, e.g. --- or -----)
         if ($name -match '^-+$') {
             $targets.Add([Separator]::new())
             continue
         }
 
-        # 解析位址（第二個欄位）
+        # Parse address (second field)
         if ($parts.Count -lt 2) {
-            Write-Warning "設定檔格式錯誤，缺少位址欄位: $rawLine"
+            Write-Warning "Invalid config line format, missing address field: $rawLine"
             continue
         }
         $address = $parts[1]
 
-        # 解析選項（第三個欄位以後的 key=value）
+        # Parse options (key=value pairs from third field onward)
         $source = $null
+        $via = $null
+        $port = 0
         for ($i = 2; $i -lt $parts.Count; $i++) {
             $option = $parts[$i]
             if ($option -match '^(\w+)=(.+)$') {
@@ -85,14 +88,16 @@ function Read-DeadmanConfig {
 
                 switch ($key) {
                     'source' { $source = $value }
-                    # 其餘選項（os, relay, via, community, user, key 等）
-                    # 解析但不使用，保持與原版設定檔相容
-                    default { <# 忽略不支援的選項 #> }
+                    'via'    { $via = $value }
+                    'port'   { $port = [int]$value }
+                    # Other options (os, relay, community, user, key, etc.)
+                    # Parsed but not used, maintaining compatibility with original config format
+                    default { <# Ignore unsupported options #> }
                 }
             }
         }
 
-        # 建立 PingTarget 物件
+        # Create PingTarget object
         if ($source) {
             $target = [PingTarget]::new($name, $address, $source)
         }
@@ -100,8 +105,13 @@ function Read-DeadmanConfig {
             $target = [PingTarget]::new($name, $address)
         }
 
-        # 設定 RTT 刻度
+        # Set RTT scale
         $target.RttScale = $RttScale
+
+        # Set TCP port if via=tcp is specified
+        if ($via -eq 'tcp' -and $port -gt 0) {
+            $target.TcpPort = $port
+        }
 
         $targets.Add($target)
     }

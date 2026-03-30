@@ -1,38 +1,38 @@
 # -*- coding: utf-8 -*-
-# ConsoleUI.ps1 — 終端機 UI 繪製類別
-# 改寫自 https://github.com/upa/deadman (MIT License)
-# 使用 [System.Console] API 完全支援 PowerShell 7+
+# ConsoleUI.ps1 — Terminal UI rendering class
+# Ported from https://github.com/upa/deadman (MIT License)
+# Uses [System.Console] API, fully supports PowerShell 7+
 
 # ============================================================
-# 常數定義
+# Constants
 # ============================================================
 
-# 程式名稱與版本
+# Program name and version
 $script:TITLE_PROGNAME = "Dead Man"
 $script:TITLE_VERSION = "[ver 1.0.0-ps]"
-# 標題區域佔用的垂直行數
+# Number of vertical lines occupied by the title area
 $script:TITLE_VERTIC_LENGTH = 4
 
-# 箭頭指示器
+# Arrow indicator
 $script:ARROW = " > "
 $script:REAR  = "   "
 
-# 欄位最大寬度限制
+# Maximum column width limits
 $script:MAX_HOSTNAME_LENGTH = 20
 $script:MAX_ADDRESS_LENGTH = 40
 
-# 預設結果歷史紀錄可顯示長度
+# Default result history display length
 $script:RESULT_STR_LENGTH = 10
 
 # ============================================================
-# ConsoleUI 類別 — 封裝終端機繪製邏輯
+# ConsoleUI class — encapsulates terminal rendering logic
 # ============================================================
 class ConsoleUI {
-    # 終端機尺寸
+    # Terminal dimensions
     [int]$Width
     [int]$Height
 
-    # 各欄位起始位置與長度
+    # Column start positions and lengths
     [int]$StartArrow
     [int]$LengthArrow
     [int]$StartHostname
@@ -44,24 +44,24 @@ class ConsoleUI {
     [int]$ResStart
     [int]$ResLength
 
-    # RTT 柱狀圖刻度（毫秒）
+    # RTT bar chart scale (milliseconds)
     [int]$RttScale
 
-    # 主機資訊字串
+    # Host information string
     [string]$HostInfo
 
-    # 全域步進計數器（用於旋轉動畫）
+    # Global step counter (for spinner animation)
     [int]$GlobalStep = 0
 
-    # 原始前景與背景色（用於還原）
+    # Original foreground and background colors (for restoration)
     hidden [System.ConsoleColor]$OrigFg
     hidden [System.ConsoleColor]$OrigBg
 
-    # 建構子 — 初始化主機資訊與終端機尺寸
+    # Constructor — initialize host info and terminal dimensions
     ConsoleUI([int]$rttScale) {
         $this.RttScale = $rttScale
 
-        # 取得主機名稱與 IP，建構主機資訊字串
+        # Get hostname and IP, build host info string
         $hostname = [System.Net.Dns]::GetHostName()
         try {
             $ip = ([System.Net.Dns]::GetHostAddresses($hostname) |
@@ -73,31 +73,31 @@ class ConsoleUI {
             $this.HostInfo = "From: $hostname"
         }
 
-        # 儲存原始終端機色彩
+        # Save original terminal colors
         $this.OrigFg = [System.Console]::ForegroundColor
         $this.OrigBg = [System.Console]::BackgroundColor
 
-        # 初始化終端機
+        # Initialize terminal
         $this.Reinit()
     }
 
-    # 遞增全域步進計數器（旋轉動畫用）
+    # Increment global step counter (for spinner animation)
     [void] IncrementStep() {
         $this.GlobalStep++
     }
 
-    # 取得主機資訊字串，可選是否附帶旋轉動畫
+    # Get host info string, optionally with spinner animation
     [string] GetHostInfo([bool]$withWheel) {
         if (-not $withWheel) {
             return $this.HostInfo
         }
-        # 旋轉動畫字元：| / - \
+        # Spinner animation characters: | / - \
         $wheelChars = @('|', '/', '-', '\')
         $wheel = $wheelChars[$this.GlobalStep % 4]
         return "$($this.HostInfo) $wheel"
     }
 
-    # 重新初始化終端機畫面（清空並重設游標）
+    # Reinitialize terminal screen (clear and reset cursor)
     [void] Reinit() {
         [System.Console]::Clear()
         [System.Console]::CursorVisible = $false
@@ -105,12 +105,12 @@ class ConsoleUI {
         $this.Height = [System.Console]::WindowHeight
     }
 
-    # 安全寫入字串到指定座標，防止超出終端機範圍
+    # Safely write a string at specified coordinates, preventing overflow beyond terminal bounds
     [void] WriteAt([int]$row, [int]$col, [string]$text) {
         if ($row -lt 0 -or $row -ge $this.Height) { return }
         if ($col -lt 0 -or $col -ge $this.Width) { return }
 
-        # 截斷超出螢幕寬度的文字
+        # Truncate text exceeding screen width
         $maxLen = $this.Width - $col
         if ($text.Length -gt $maxLen) {
             $text = $text.Substring(0, [Math]::Max(0, $maxLen))
@@ -121,7 +121,7 @@ class ConsoleUI {
         [System.Console]::Write($text)
     }
 
-    # 安全寫入帶色彩的字串到指定座標
+    # Safely write a colored string at specified coordinates
     [void] WriteAt([int]$row, [int]$col, [string]$text, [System.ConsoleColor]$fg) {
         $prevFg = [System.Console]::ForegroundColor
         [System.Console]::ForegroundColor = $fg
@@ -129,17 +129,17 @@ class ConsoleUI {
         [System.Console]::ForegroundColor = $prevFg
     }
 
-    # 根據目標列表計算各欄位的起始位置與寬度
-    # 對齊原版 CursesCtrl.update_info() 的邏輯
+    # Calculate column start positions and widths based on the target list
+    # Aligned with the original CursesCtrl.update_info() logic
     [void] UpdateLayout([System.Collections.Generic.List[object]]$targets) {
         $this.Width = [System.Console]::WindowWidth
         $this.Height = [System.Console]::WindowHeight
 
-        # 箭頭欄位
+        # Arrow column
         $this.StartArrow = 0
         $this.LengthArrow = $script:ARROW.Length
 
-        # 主機名稱欄位 — 取所有目標中最長的名稱
+        # Hostname column — use the longest name among all targets
         $hlen = "HOSTNAME ".Length
         foreach ($t in $targets) {
             if ($t -is [Separator]) { continue }
@@ -149,7 +149,7 @@ class ConsoleUI {
         $this.StartHostname = $this.StartArrow + $this.LengthArrow
         $this.LengthHostname = $hlen
 
-        # 位址欄位 — 取所有目標中最長的位址
+        # Address column — use the longest address among all targets
         $alen = "ADDRESS ".Length
         foreach ($t in $targets) {
             if ($t -is [Separator]) { continue }
@@ -164,15 +164,15 @@ class ConsoleUI {
         $this.StartAddress = $this.StartHostname + $this.LengthHostname + 1
         $this.LengthAddress = $alen
 
-        # 參考值欄位（LOSS RTT AVG SNT）
+        # Reference values column (LOSS RTT AVG SNT)
         $this.RefStart = $this.StartAddress + $this.LengthAddress + 1
         $this.RefLength = " LOSS  RTT  AVG  SNT".Length
 
-        # 結果柱狀圖欄位
+        # Result bar chart column
         $this.ResStart = $this.RefStart + $this.RefLength + 2
         $this.ResLength = $this.Width - ($this.RefStart + $this.RefLength + 2)
 
-        # 如果結果欄位太窄，向左壓縮以確保至少顯示 10 字元
+        # If result column is too narrow, compress leftward to ensure at least 10 characters
         if ($this.ResLength -lt 10) {
             $rev = 10 - $this.ResLength + $script:ARROW.Length
             $this.RefStart -= $rev
@@ -180,32 +180,32 @@ class ConsoleUI {
             $this.ResLength = 10
         }
 
-        # 更新全域結果字串長度
+        # Update global result string length
         $script:RESULT_STR_LENGTH = $this.ResLength
     }
 
-    # 繪製標題列（程式名稱、主機資訊、版本號、RTT 刻度說明）
+    # Draw title row (program name, host info, version, RTT scale description)
     [void] PrintTitle([bool]$withWheel) {
-        # 程式名稱置中於第一行
+        # Center program name on the first row
         $spacelen = [int](($this.Width - $script:TITLE_PROGNAME.Length) / 2)
         $this.WriteAt(0, $spacelen, $script:TITLE_PROGNAME, [System.ConsoleColor]::White)
 
-        # 主機資訊於第二行左側
+        # Host info on the second row (left side)
         $displayHostInfo = $this.GetHostInfo($withWheel)
         $this.WriteAt(1, $this.StartHostname, $displayHostInfo, [System.ConsoleColor]::White)
 
-        # 版本號於第二行右側
+        # Version on the second row (right side)
         $versionCol = $this.Width - ($script:ARROW.Length + $script:TITLE_VERSION.Length)
         if ($versionCol -gt 0) {
             $this.WriteAt(1, $versionCol, $script:TITLE_VERSION, [System.ConsoleColor]::White)
         }
 
-        # RTT 刻度說明於第三行
+        # RTT scale description on the third row
         $scaleInfo = "RTT Scale $($this.RttScale)ms. Keys: (r)efresh (q)uit"
         $this.WriteAt(2, $script:ARROW.Length, $scaleInfo)
     }
 
-    # 清除標題區域
+    # Clear title area
     [void] EraseTitle() {
         $blank = ' ' * $this.Width
         for ($row = 0; $row -lt 3; $row++) {
@@ -213,7 +213,7 @@ class ConsoleUI {
         }
     }
 
-    # 繪製表頭參考列（HOSTNAME、ADDRESS、LOSS、RTT、AVG、SNT、RESULT）
+    # Draw header reference row (HOSTNAME, ADDRESS, LOSS, RTT, AVG, SNT, RESULT)
     [void] PrintReference() {
         $linenum = $script:TITLE_VERTIC_LENGTH
         $this.WriteAt($linenum, $script:ARROW.Length, "HOSTNAME", [System.ConsoleColor]::White)
@@ -223,13 +223,13 @@ class ConsoleUI {
         $this.WriteAt($linenum, $this.RefStart, $valuesStr, [System.ConsoleColor]::White)
     }
 
-    # 清除表頭參考列
+    # Clear header reference row
     [void] EraseReference() {
         $linenum = $script:TITLE_VERTIC_LENGTH
         $this.WriteAt($linenum, 0, (' ' * $this.Width))
     }
 
-    # 繪製分隔線
+    # Draw separator line
     [void] PrintSeparator([int]$number) {
         $linenum = $number + $script:TITLE_VERTIC_LENGTH
         $dashLen = $this.Width - $this.StartHostname - $script:ARROW.Length
@@ -238,11 +238,11 @@ class ConsoleUI {
         }
     }
 
-    # 繪製單一 Ping 目標的結果行
-    [void] PrintPingTarget([PingTarget]$target, [int]$number) {
+    # Draw a single ping target result row
+    [void] PrintPingTarget([object]$target, [int]$number) {
         $linenum = $number + $script:TITLE_VERTIC_LENGTH
 
-        # 根據目標狀態選擇色彩：存活=綠色，無回應=紅色
+        # Choose color based on target state: alive=green, no response=red
         $lineColor = if ($target.State) {
             [System.ConsoleColor]::Green
         }
@@ -250,21 +250,21 @@ class ConsoleUI {
             [System.ConsoleColor]::Red
         }
 
-        # 主機名稱
+        # Hostname
         $nameStr = $target.Name
         if ($nameStr.Length -gt $this.LengthHostname) {
             $nameStr = $nameStr.Substring(0, $this.LengthHostname)
         }
         $this.WriteAt($linenum, $this.StartHostname, $nameStr, $lineColor)
 
-        # 位址
+        # Address
         $addrStr = $target.Address
         if ($addrStr.Length -gt $this.LengthAddress) {
             $addrStr = $addrStr.Substring(0, $this.LengthAddress)
         }
         $this.WriteAt($linenum, $this.StartAddress, $addrStr, $lineColor)
 
-        # 統計值：LOSS% RTT AVG SNT
+        # Statistics: LOSS% RTT AVG SNT
         $valuesStr = ' {0,3:N0}% {1,4:N0} {2,4:N0} {3,4:N0}  ' -f @(
             [int]$target.LossRate,
             [int]$target.RTT,
@@ -273,7 +273,7 @@ class ConsoleUI {
         )
         $this.WriteAt($linenum, $this.RefStart, $valuesStr, $lineColor)
 
-        # 繪製結果柱狀圖
+        # Draw result bar chart
         $maxChars = [Math]::Min($target.ResultHistory.Count, $this.ResLength)
         for ($n = 0; $n -lt $maxChars; $n++) {
             $ch = $target.ResultHistory[$n]
@@ -288,55 +288,55 @@ class ConsoleUI {
             }
         }
 
-        # 清除行尾殘留字元
+        # Clear trailing characters at end of line
         $rearCol = $this.Width - $script:REAR.Length
         if ($rearCol -gt 0) {
             $this.WriteAt($linenum, $rearCol, $script:REAR)
         }
     }
 
-    # 繪製箭頭指示器（標示目前正在 Ping 的目標）
+    # Draw arrow indicator (marks the currently pinged target)
     [void] PrintArrow([int]$number) {
         $linenum = $number + $script:TITLE_VERTIC_LENGTH
         $this.WriteAt($linenum, $this.StartArrow, $script:ARROW)
     }
 
-    # 清除箭頭指示器
+    # Clear arrow indicator
     [void] EraseArrow([int]$number) {
         $linenum = $number + $script:TITLE_VERTIC_LENGTH
         $this.WriteAt($linenum, $this.StartArrow, (' ' * $script:ARROW.Length))
     }
 
-    # 清除指定 Ping 目標行的內容
+    # Clear the content of a specified ping target row
     [void] ErasePingTarget([int]$number) {
         $linenum = $number + $script:TITLE_VERTIC_LENGTH
         $blank = ' ' * [Math]::Max(0, $this.Width - 2)
         $this.WriteAt($linenum, 2, $blank)
     }
 
-    # 處理日誌記錄 — 將 Ping 結果追加寫入日誌檔案
-    [void] WriteLog([string]$logDir, [PingTarget]$target) {
+    # Handle logging — append ping results to log file
+    [void] WriteLog([string]$logDir, [object]$target) {
         if ([string]::IsNullOrEmpty($logDir)) { return }
 
-        # 確保日誌目錄存在
+        # Ensure log directory exists
         if (-not (Test-Path -LiteralPath $logDir)) {
             New-Item -ItemType Directory -Path $logDir -Force | Out-Null
         }
 
-        # 組合日誌路徑（使用目標名稱為檔名）
+        # Build log file path (use target name as filename)
         $filePath = Join-Path $logDir $target.Name
-        # 格式：時間戳 RTT 平均RTT 已送出次數
+        # Format: timestamp RTT average sent_count
         $logLine = "{0} {1} {2} {3}" -f @(
             (Get-Date).ToString('yyyy-MM-dd HH:mm:ss.fff'),
             $target.RTT,
             $target.Average,
             $target.Sent
         )
-        # 追加寫入（使用 UTF-8 編碼）
+        # Append to file (UTF-8 encoding)
         Add-Content -LiteralPath $filePath -Value $logLine -Encoding UTF8
     }
 
-    # 還原終端機設定（程式結束時呼叫）
+    # Restore terminal settings (called on program exit)
     [void] Cleanup() {
         [System.Console]::ForegroundColor = $this.OrigFg
         [System.Console]::BackgroundColor = $this.OrigBg

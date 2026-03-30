@@ -1,152 +1,163 @@
-# Dead Man (PowerShell 版)
+# Dead Man (PowerShell Edition)
 
-> 改寫自 [upa/deadman](https://github.com/upa/deadman)（MIT License）
+> Ported from [upa/deadman](https://github.com/upa/deadman) (MIT License)
 
-deadman 是一個使用 Ping 監控主機狀態的觀測工具。透過 ICMP Echo 檢查主機是否存活，並以終端機 UI 即時顯示結果。
+deadman is a host monitoring tool using ICMP Ping and TCP Ping. It checks whether hosts are alive via ICMP Echo or TCP SYN and displays results in real-time through a terminal UI.
 
-此版本完全使用 **PowerShell 7+** 實作，透過 `System.Console` API 繪製終端機介面，適用於 Windows、macOS、Linux。
+This version is fully implemented in **PowerShell 7+**, using the `System.Console` API for terminal rendering. Works on Windows, macOS, and Linux.
 
-## 功能特色
+## Features
 
-- 🔍 即時 Ping 監控多個主機
-- 📊 Unicode 柱狀圖顯示 RTT 歷史（▁▂▃▄▅▆▇█）
-- 🎨 色彩標示：綠色 = 存活、紅色 = 無回應
-- ⚡ 支援同步（逐一）與非同步（並行）Ping 模式
-- 📁 設定檔格式與原版完全相容
-- 📝 可選的日誌記錄功能
-- 🔄 按鍵互動：`r` 重置統計、`q` 退出
-- 📐 自動偵測終端機尺寸變化並重繪
+- 🔍 Real-time ping monitoring of multiple hosts
+- 📊 Unicode bar chart display for RTT history (▁▂▃▄▅▆▇█)
+- 🎨 Color-coded: green = alive, red = no response
+- ⚡ Supports both sync (sequential) and async (parallel) ping modes
+- � TCP ping support: `Test-NetConnection` on Windows, `hping3` on macOS/Linux
+- �📁 Configuration file format fully compatible with the original
+- 📝 Optional logging functionality
+- 🔄 Key interaction: `r` to reset statistics, `q` to quit
+- 📐 Automatic terminal size detection and redraw
 
-## 前置條件
+## Prerequisites
 
-- **PowerShell 7.0** 或更新版本
-  - Windows：`winget install Microsoft.PowerShell`
-  - macOS：`brew install powershell`
-  - Linux：參考 [官方安裝指南](https://learn.microsoft.com/zh-tw/powershell/scripting/install/installing-powershell-on-linux)
-- 非同步模式需要 `ThreadJob` 模組（PowerShell 7 內建）
+- **PowerShell 7.0** or later
+  - Windows: `winget install Microsoft.PowerShell`
+  - macOS: `brew install powershell`
+  - Linux: See [official installation guide](https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell-on-linux)
+- Async mode requires the `ThreadJob` module (built-in with PowerShell 7)
+- TCP ping on macOS/Linux requires [hping3](https://github.com/antirez/hping) (`brew install hping` / `apt install hping3`)
+- TCP ping on macOS/Linux requires `sudo` (root privileges) to send raw packets: `sudo pwsh ./deadman.ps1 ...`
+- TCP ping on Windows uses the built-in `Test-NetConnection` cmdlet
 
-## 快速開始
+## Quick Start
 
 ```powershell
-# 複製專案
-git clone https://github.com/pichuang/deadman-win.git
-cd deadman-win
+# Clone the project
+git clone https://github.com/pichuang/deadman-pwsh.git
+cd deadman-pwsh
 
-# 使用預設設定檔啟動（同步模式）
+# Start with default config file (sync mode)
 ./deadman.ps1 -ConfigFile deadman.conf
 
-# 非同步模式（同時 Ping 所有目標）
+# Async mode (ping all targets simultaneously)
 ./deadman.ps1 -ConfigFile deadman.conf -AsyncMode
 
-# 自訂 RTT 刻度為 20ms 並啟用日誌
+# Custom RTT scale at 20ms with logging enabled
 ./deadman.ps1 -ConfigFile deadman.conf -Scale 20 -LogDir ./logs
 ```
 
-## 參數說明
+## Parameters
 
-| 參數 | 別名 | 類型 | 說明 |
-|------|------|------|------|
-| `-ConfigFile` | | string | 設定檔路徑（必要） |
-| `-Scale` | `-s` | int | RTT 柱狀圖刻度，預設 10（毫秒） |
-| `-AsyncMode` | `-a` | switch | 啟用非同步 Ping 模式 |
-| `-BlinkArrow` | `-b` | switch | 非同步模式下閃爍箭頭指示器 |
-| `-LogDir` | `-l` | string | 日誌目錄路徑 |
+| Parameter | Alias | Type | Description |
+|-----------|-------|------|-------------|
+| `-ConfigFile` | | string | Configuration file path (required) |
+| `-Scale` | `-s` | int | RTT bar chart scale, default 10 (milliseconds) |
+| `-AsyncMode` | `-a` | switch | Enable async ping mode |
+| `-BlinkArrow` | `-b` | switch | Blink arrow indicator in async mode |
+| `-LogDir` | `-l` | string | Log directory path |
 
-## 設定檔格式
+## Configuration File Format
 
-設定檔格式與[原版 deadman](https://github.com/upa/deadman) 完全相容：
+The configuration file format is fully compatible with the [original deadman](https://github.com/upa/deadman):
 
 ```conf
 #
-# deadman 設定檔
-# 格式：名稱    位址    [選項]
+# deadman configuration file
+# Format: name    address    [options]
 #
 
-# === 基本目標 ===
+# === Basic targets ===
 googleDNS       8.8.8.8
 quad9           9.9.9.9
 
-# === 分隔線（用 --- 或更多連字號）===
+# === Separator (use --- or more hyphens) ===
 ---
 
-# === IPv6 目標 ===
+# === IPv6 targets ===
 googleDNS-v6    2001:4860:4860::8888
 
-# === 指定來源介面 ===
+# === Specify source interface ===
 local-eth0      192.168.1.1     source=eth0
+
+# === TCP ping targets ===
+web-https       10.0.0.1        via=tcp port=443
+web-http        10.0.0.2        via=tcp port=80
 ```
 
-### 支援的選項
+### Supported Options
 
-| 選項 | 說明 |
-|------|------|
-| `source=介面` | 指定 Ping 的來源網路介面 |
+| Option | Description |
+|--------|-------------|
+| `source=interface` | Specify the source network interface for ping |
+| `via=tcp` | Use TCP SYN ping instead of ICMP |
+| `port=number` | TCP port number (requires `via=tcp`) |
 
-> **注意**：原版的 SSH relay（`relay=`）、SNMP（`via=snmp`）、netns、VRF、TCP ping 等進階選項在設定檔中會被正常解析但不使用，不會產生錯誤。
+> **Note**: The original advanced options such as SSH relay (`relay=`), SNMP (`via=snmp`), netns, and VRF are parsed but not used in this version. They will not produce errors.
 
-## 按鍵操作
+## Key Bindings
 
-| 按鍵 | 功能 |
-|------|------|
-| `r` | 重置所有目標的統計資料 |
-| `q` | 退出程式 |
+| Key | Action |
+|-----|--------|
+| `r` | Reset all target statistics |
+| `q` | Quit the program |
 
-## 執行測試
+## Running Tests
 
-使用 [Pester 5](https://pester.dev/) 測試框架：
+Uses [Pester 5](https://pester.dev/) test framework:
 
 ```powershell
-# 安裝 Pester（如尚未安裝）
+# Install Pester (if not already installed)
 Install-Module -Name Pester -MinimumVersion 5.0 -Force -Scope CurrentUser
 
-# 執行所有測試
+# Run all tests
 Invoke-Pester ./tests/ -Output Detailed
 
-# 僅執行特定測試檔案
+# Run a specific test file
 Invoke-Pester ./tests/ConfigParser.Tests.ps1 -Output Detailed
 
-# 排除需要網路的測試
+# Exclude tests requiring network access
 Invoke-Pester ./tests/ -Output Detailed -ExcludeTag 'Network'
 ```
 
-## 專案結構
+## Project Structure
 
 ```
-deadman-win/
-├── deadman.ps1           # 主程式進入點（參數解析、主迴圈）
-├── deadman.conf          # 範例設定檔
+deadman-pwsh/
+├── deadman.ps1           # Main entry point (parameter parsing, main loop)
+├── deadman.conf          # Example configuration file
 ├── lib/
-│   ├── PingTarget.ps1    # PingTarget / PingResult 類別定義
-│   ├── ConfigParser.ps1  # 設定檔解析函式
-│   └── ConsoleUI.ps1     # 終端機 UI 繪製類別
+│   ├── PingTarget.ps1    # PingTarget / PingResult class definitions
+│   ├── ConfigParser.ps1  # Configuration file parsing function
+│   └── ConsoleUI.ps1     # Terminal UI rendering class
 ├── tests/
-│   ├── PingTarget.Tests.ps1    # PingTarget 單元測試
-│   ├── ConfigParser.Tests.ps1  # ConfigParser 單元測試
-│   ├── ConsoleUI.Tests.ps1     # ConsoleUI 單元測試
-│   └── Integration.Tests.ps1   # 整合測試
-└── README.md
+│   ├── PingTarget.Tests.ps1    # PingTarget unit tests
+│   ├── ConfigParser.Tests.ps1  # ConfigParser unit tests
+│   ├── ConsoleUI.Tests.ps1     # ConsoleUI unit tests
+│   └── Integration.Tests.ps1   # Integration tests
+├── README.md             # English documentation
+└── readme.zh-tw.md       # Chinese (Traditional) documentation
 ```
 
-## 與原版差異
+## Differences from Original
 
-| 功能 | 原版 (Python) | 此版 (PowerShell) |
-|------|--------------|------------------|
-| 語言 | Python 3 + curses | PowerShell 7+ |
-| UI 框架 | curses | System.Console API |
-| Ping 實作 | subprocess (ping 指令) | Test-Connection Cmdlet |
-| 非同步 | asyncio | ThreadJob / ForEach-Object -Parallel |
-| SSH Relay | ✅ | ❌（設定檔相容，但不使用） |
+| Feature | Original (Python) | This Version (PowerShell) |
+|---------|-------------------|---------------------------|
+| Language | Python 3 + curses | PowerShell 7+ |
+| UI Framework | curses | System.Console API |
+| Ping Implementation | subprocess (ping command) | Test-Connection Cmdlet |
+| Async | asyncio | ThreadJob / ForEach-Object -Parallel |
+| SSH Relay | ✅ | ❌ (config compatible, but not used) |
 | SNMP Ping | ✅ | ❌ |
 | RouterOS API | ✅ | ❌ |
 | netns / VRF | ✅ | ❌ |
-| TCP Ping (hping3) | ✅ | ❌ |
-| SIGHUP 重載 | ✅ | ❌（Windows 不支援 SIGHUP） |
+| TCP Ping (hping3) | ✅ | ✅ (Windows: tnc, macOS/Linux: hping3) |
+| SIGHUP Reload | ✅ | ❌ (SIGHUP not supported on Windows) |
 
-## 授權
+## License
 
-MIT License — 與原版相同
+MIT License — same as the original
 
-## 致謝
+## Acknowledgements
 
-- [upa/deadman](https://github.com/upa/deadman) — 原始 Python 版本
-- 原始設計與實作：Interop Tokyo ShowNet NOC 團隊
+- [upa/deadman](https://github.com/upa/deadman) — Original Python version
+- Original design and implementation: Interop Tokyo ShowNet NOC team

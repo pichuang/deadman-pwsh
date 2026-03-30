@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
-# ConfigParser.Tests.ps1 — 設定檔解析函式的單元測試
-# 使用 Pester 5 測試框架
+# ConfigParser.Tests.ps1 — Unit tests for configuration file parsing function
+# Uses Pester 5 test framework
 
 BeforeAll {
-    # 載入相依模組（類別定義須先載入）
+    # Load dependent modules (class definitions must be loaded first)
     . "$PSScriptRoot/../lib/PingTarget.ps1"
     . "$PSScriptRoot/../lib/ConfigParser.ps1"
 
-    # 輔助函式 — 建立暫時設定檔並回傳路徑
+    # Helper function — create a temporary config file and return its path
     function New-TempConfig {
         param([string]$Content)
         $tempFile = Join-Path ([System.IO.Path]::GetTempPath()) "deadman-test-$(New-Guid).conf"
@@ -19,26 +19,26 @@ BeforeAll {
 Describe 'Read-DeadmanConfig' {
 
     AfterEach {
-        # 清理暫時設定檔
+        # Clean up temporary config files
         Get-ChildItem ([System.IO.Path]::GetTempPath()) -Filter 'deadman-test-*.conf' |
             Remove-Item -Force -ErrorAction SilentlyContinue
     }
 
     # ========================================================
-    # 基本功能測試
+    # Basic functionality tests
     # ========================================================
 
-    Context '基本行解析' {
+    Context 'Basic line parsing' {
 
-        It '應正確解析名稱與位址' {
-            # 準備：建立包含兩個目標的設定檔
+        It 'Should correctly parse name and address' {
+            # Prepare: create a config file with two targets
             $config = New-TempConfig -Content @"
 googleDNS   8.8.8.8
 quad9       9.9.9.9
 "@
             $result = Read-DeadmanConfig -Path $config
 
-            # 驗證：應回傳兩個 PingTarget 物件
+            # Verify: should return two PingTarget objects
             $result.Count | Should -Be 2
             $result[0].GetType().Name | Should -Be 'PingTarget'
             $result[0].Name | Should -Be 'googleDNS'
@@ -47,7 +47,7 @@ quad9       9.9.9.9
             $result[1].Address | Should -Be '9.9.9.9'
         }
 
-        It '應正確處理 Tab 分隔的行' {
+        It 'Should correctly handle tab-delimited lines' {
             $config = New-TempConfig -Content "google`t8.8.8.8"
             $result = Read-DeadmanConfig -Path $config
 
@@ -56,7 +56,7 @@ quad9       9.9.9.9
             $result[0].Address | Should -Be '8.8.8.8'
         }
 
-        It '應正確處理多個空格分隔的行' {
+        It 'Should correctly handle lines with multiple spaces' {
             $config = New-TempConfig -Content "google     8.8.8.8"
             $result = Read-DeadmanConfig -Path $config
 
@@ -67,20 +67,20 @@ quad9       9.9.9.9
     }
 
     # ========================================================
-    # 選項解析測試
+    # Option parsing tests
     # ========================================================
 
-    Context '選項解析' {
+    Context 'Option parsing' {
 
-        It '應正確解析 source 選項' {
+        It 'Should correctly parse the source option' {
             $config = New-TempConfig -Content "myhost 192.168.1.1 source=eth0"
             $result = Read-DeadmanConfig -Path $config
 
             $result[0].Source | Should -Be 'eth0'
         }
 
-        It '應忽略不支援的選項而不報錯' {
-            # relay, os, via 等選項在此版本不使用，但不應導致錯誤
+        It 'Should ignore unsupported options without errors' {
+            # relay, os options are not used in this version but should not cause errors
             $config = New-TempConfig -Content "myhost 8.8.8.8 relay=10.0.0.1 os=Linux via=ssh"
             $result = Read-DeadmanConfig -Path $config
 
@@ -88,19 +88,51 @@ quad9       9.9.9.9
             $result[0].Name | Should -Be 'myhost'
             $result[0].Address | Should -Be '8.8.8.8'
         }
+
+        It 'Should correctly parse via=tcp and port options' {
+            $config = New-TempConfig -Content "webhost 10.0.0.1 via=tcp port=443"
+            $result = Read-DeadmanConfig -Path $config
+
+            $result.Count | Should -Be 1
+            $result[0].Name | Should -Be 'webhost'
+            $result[0].Address | Should -Be '10.0.0.1'
+            $result[0].TcpPort | Should -Be 443
+        }
+
+        It 'Should not set TcpPort when via is not tcp' {
+            $config = New-TempConfig -Content "myhost 10.0.0.1 via=snmp port=161"
+            $result = Read-DeadmanConfig -Path $config
+
+            $result[0].TcpPort | Should -Be 0
+        }
+
+        It 'Should not set TcpPort when port is missing' {
+            $config = New-TempConfig -Content "myhost 10.0.0.1 via=tcp"
+            $result = Read-DeadmanConfig -Path $config
+
+            $result[0].TcpPort | Should -Be 0
+        }
+
+        It 'Should parse via=tcp with source option together' {
+            $config = New-TempConfig -Content "webhost 10.0.0.1 source=eth0 via=tcp port=80"
+            $result = Read-DeadmanConfig -Path $config
+
+            $result[0].Source | Should -Be 'eth0'
+            $result[0].TcpPort | Should -Be 80
+        }
     }
 
     # ========================================================
-    # 註解與空行測試
+    # Comment and blank line tests
     # ========================================================
 
-    Context '註解與空行處理' {
+    Context 'Comment and blank line handling' {
 
-        It '應忽略以 # 開頭的註解行' {
+        It 'Should ignore lines starting with #' {
             $config = New-TempConfig -Content @"
-# 這是註解
+# This is a comment
 googleDNS   8.8.8.8
-# 另一行註解
+# Another comment
 "@
             $result = Read-DeadmanConfig -Path $config
 
@@ -108,7 +140,7 @@ googleDNS   8.8.8.8
             $result[0].Name | Should -Be 'googleDNS'
         }
 
-        It '應忽略空行' {
+        It 'Should ignore empty lines' {
             $config = New-TempConfig -Content @"
 googleDNS   8.8.8.8
 
@@ -120,7 +152,7 @@ quad9       9.9.9.9
             $result.Count | Should -Be 2
         }
 
-        It '應忽略純空白行' {
+        It 'Should ignore whitespace-only lines' {
             $config = New-TempConfig -Content "googleDNS   8.8.8.8`n   `n   "
             $result = Read-DeadmanConfig -Path $config
 
@@ -129,12 +161,12 @@ quad9       9.9.9.9
     }
 
     # ========================================================
-    # 分隔線測試
+    # Separator tests
     # ========================================================
 
-    Context '分隔線處理' {
+    Context 'Separator handling' {
 
-        It '應將 --- 解析為 Separator 物件' {
+        It 'Should parse --- as a Separator object' {
             $config = New-TempConfig -Content @"
 google  8.8.8.8
 ---
@@ -148,7 +180,7 @@ quad9   9.9.9.9
             $result[2].GetType().Name | Should -Be 'PingTarget'
         }
 
-        It '應支援不同長度的分隔線' {
+        It 'Should support separators of different lengths' {
             $config = New-TempConfig -Content @"
 google  8.8.8.8
 -----
@@ -161,19 +193,19 @@ quad9   9.9.9.9
     }
 
     # ========================================================
-    # RTT 刻度傳遞測試
+    # RTT scale propagation tests
     # ========================================================
 
-    Context 'RTT 刻度設定' {
+    Context 'RTT scale configuration' {
 
-        It '應將 RttScale 傳遞給每個 PingTarget' {
+        It 'Should pass RttScale to each PingTarget' {
             $config = New-TempConfig -Content "google 8.8.8.8"
             $result = Read-DeadmanConfig -Path $config -RttScale 20
 
             $result[0].RttScale | Should -Be 20
         }
 
-        It '預設 RttScale 應為 10' {
+        It 'Default RttScale should be 10' {
             $config = New-TempConfig -Content "google 8.8.8.8"
             $result = Read-DeadmanConfig -Path $config
 
@@ -182,36 +214,36 @@ quad9   9.9.9.9
     }
 
     # ========================================================
-    # 錯誤處理測試
+    # Error handling tests
     # ========================================================
 
-    Context '錯誤處理' {
+    Context 'Error handling' {
 
-        It '設定檔不存在時應拋出例外' {
+        It 'Should throw an exception when config file does not exist' {
             { Read-DeadmanConfig -Path '/nonexistent/path/deadman.conf' } |
-                Should -Throw '設定檔不存在*'
+                Should -Throw 'Configuration file not found*'
         }
 
-        It '缺少位址欄位時應產生警告並跳過該行' {
+        It 'Should produce a warning and skip lines missing the address field' {
             $config = New-TempConfig -Content @"
 google
 quad9   9.9.9.9
 "@
             $result = Read-DeadmanConfig -Path $config -WarningAction SilentlyContinue
 
-            # 只有 quad9 應被解析成功
+            # Only quad9 should be parsed successfully
             $result.Count | Should -Be 1
             $result[0].Name | Should -Be 'quad9'
         }
     }
 
     # ========================================================
-    # 與原版設定檔相容性測試
+    # Original config format compatibility tests
     # ========================================================
 
-    Context '原版設定檔相容性' {
+    Context 'Original config format compatibility' {
 
-        It '應正確解析原版格式的完整設定檔' {
+        It 'Should correctly parse a complete original format config file' {
             $config = New-TempConfig -Content @"
 #
 #	deadman config

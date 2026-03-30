@@ -1,86 +1,103 @@
 #!/usr/bin/env pwsh
 # -*- coding: utf-8 -*-
-# deadman.ps1 — 主程式進入點
-# 改寫自 https://github.com/upa/deadman (MIT License)
+# deadman.ps1 — Main entry point
+# Ported from https://github.com/upa/deadman (MIT License)
 #
-# deadman 是一個使用 Ping 監控主機狀態的觀測工具。
-# 此版本完全使用 PowerShell 7+ 實作，透過 System.Console API 繪製終端機 UI。
+# deadman is a host monitoring tool using ICMP Ping.
+# This version is fully implemented in PowerShell 7+ using the System.Console API for terminal UI.
 #
-# 使用方式：
+# Usage:
 #   ./deadman.ps1 -ConfigFile deadman.conf
 #   ./deadman.ps1 -ConfigFile deadman.conf -AsyncMode
 #   ./deadman.ps1 -ConfigFile deadman.conf -Scale 20 -LogDir ./logs
 
 [CmdletBinding()]
 param(
-    # 設定檔路徑（必要參數）
-    [Parameter(Mandatory, Position = 0)]
+    # Configuration file path (defaults to deadman.conf in script directory)
+    [Parameter(Position = 0)]
     [string]$ConfigFile,
 
-    # RTT 柱狀圖刻度（毫秒），預設 10ms
+    # RTT bar chart scale (milliseconds), default 10ms
     [Alias('s')]
     [int]$Scale = 10,
 
-    # 啟用非同步 Ping 模式（同時對所有目標發送 Ping）
+    # Enable async ping mode (ping all targets simultaneously)
     [Alias('a')]
     [switch]$AsyncMode,
 
-    # 非同步模式下閃爍箭頭指示器
+    # Blink arrow indicator in async mode
     [Alias('b')]
     [switch]$BlinkArrow,
 
-    # 日誌目錄路徑（選填，指定後會將 Ping 結果寫入日誌）
+    # Log directory path (optional, writes ping results to log files)
     [Alias('l')]
     [string]$LogDir
 )
 
 # ============================================================
-# 載入模組
+# Load modules
 # ============================================================
 
-# 取得腳本所在目錄
+# Get script directory
 $scriptRoot = $PSScriptRoot
 if ([string]::IsNullOrEmpty($scriptRoot)) {
     $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 }
 
-# 依序載入函式庫（順序重要：類別定義需先載入）
+# Default ConfigFile to deadman.conf in script directory
+if ([string]::IsNullOrEmpty($ConfigFile)) {
+    $ConfigFile = Join-Path $scriptRoot 'deadman.conf'
+}
+
+# Load libraries in order (class definitions must be loaded first)
 . (Join-Path $scriptRoot 'lib' 'PingTarget.ps1')
 . (Join-Path $scriptRoot 'lib' 'ConfigParser.ps1')
 . (Join-Path $scriptRoot 'lib' 'ConsoleUI.ps1')
 
 # ============================================================
-# 驗證環境
+# Validate environment
 # ============================================================
 
-# 確認 PowerShell 版本 >= 7
+# Ensure PowerShell version >= 7
 if ($PSVersionTable.PSVersion.Major -lt 7) {
-    Write-Error "deadman 需要 PowerShell 7 或更新版本。目前版本: $($PSVersionTable.PSVersion)"
+    Write-Error "deadman requires PowerShell 7 or later. Current version: $($PSVersionTable.PSVersion)"
     exit 1
 }
 
 # ============================================================
-# 解析設定檔
+# Parse configuration file
 # ============================================================
 
 $targets = Read-DeadmanConfig -Path $ConfigFile -RttScale $Scale
 
 if ($targets.Count -eq 0) {
-    Write-Error "設定檔中沒有任何有效的目標: $ConfigFile"
+    Write-Error "No valid targets found in configuration file: $ConfigFile"
     exit 1
 }
 
+# Warn if TCP ping targets exist on macOS/Linux (hping3 requires root)
+$hasTcpTargets = $targets | Where-Object { $_ -isnot [Separator] -and $_.TcpPort -gt 0 }
+if ($hasTcpTargets) {
+    $isWin = $global:IsWindows -or ($null -eq $global:IsWindows -and [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows))
+    if (-not $isWin) {
+        $currentUser = & whoami 2>$null
+        if ($currentUser -ne 'root') {
+            Write-Warning "TCP ping targets detected. hping3 requires root privileges on macOS/Linux. Please run with: sudo pwsh $($MyInvocation.MyCommand.Path) $($MyInvocation.UnboundArguments -join ' ')"
+        }
+    }
+}
+
 # ============================================================
-# Ping 間隔常數（秒）
+# Ping interval constants (seconds)
 # ============================================================
 
-# 逐一 Ping 之間的間隔
+# Interval between individual pings
 $PING_INTERVAL = 0.05
-# 完成一輪所有目標後的等待間隔
+# Wait interval after completing one round of all targets
 $PING_ALLTARGET_INTERVAL = 1
 
 # ============================================================
-# 初始化 UI
+# Initialize UI
 # ============================================================
 
 $ui = [ConsoleUI]::new($Scale)
@@ -88,7 +105,7 @@ $ui.UpdateLayout($targets)
 $ui.PrintTitle($false)
 $ui.PrintReference()
 
-# 繪製初始畫面（空白行與分隔線）
+# Draw initial screen (blank lines and separators)
 for ($idx = 0; $idx -lt $targets.Count; $idx++) {
     $number = $idx + 1
     if ($targets[$idx] -is [Separator]) {
@@ -100,23 +117,23 @@ for ($idx = 0; $idx -lt $targets.Count; $idx++) {
 }
 
 # ============================================================
-# 按鍵處理函式 — 非阻塞讀取按鍵
+# Key handler function — non-blocking key read
 # ============================================================
 
 function Invoke-KeyHandler {
     param(
-        [ConsoleUI]$UI,
+        [object]$UI,
         [System.Collections.Generic.List[object]]$Targets
     )
 
-    # 檢查是否有按鍵輸入（非阻塞）
+    # Check for key input (non-blocking)
     while ([System.Console]::KeyAvailable) {
         $keyInfo = [System.Console]::ReadKey($true)
         $key = $keyInfo.KeyChar
 
         switch ($key) {
             'r' {
-                # 重置所有目標的統計資料
+                # Reset all target statistics
                 for ($i = 0; $i -lt $Targets.Count; $i++) {
                     if ($Targets[$i] -is [Separator]) { continue }
                     $Targets[$i].Refresh()
@@ -126,7 +143,7 @@ function Invoke-KeyHandler {
                 }
             }
             'q' {
-                # 退出程式
+                # Quit program
                 $UI.Cleanup()
                 exit 0
             }
@@ -135,12 +152,12 @@ function Invoke-KeyHandler {
 }
 
 # ============================================================
-# 同步模式主迴圈 — 逐一對目標發送 Ping
+# Sync mode main loop — ping targets one by one
 # ============================================================
 
 function Start-SyncMode {
     param(
-        [ConsoleUI]$UI,
+        [object]$UI,
         [System.Collections.Generic.List[object]]$Targets,
         [string]$LogDirectory,
         [double]$PingInterval,
@@ -148,7 +165,7 @@ function Start-SyncMode {
     )
 
     while ($true) {
-        # 檢測終端機尺寸變化，必要時重繪
+        # Detect terminal size changes, redraw if necessary
         $newW = [System.Console]::WindowWidth
         $newH = [System.Console]::WindowHeight
         if ($newW -ne $UI.Width -or $newH -ne $UI.Height) {
@@ -173,57 +190,57 @@ function Start-SyncMode {
         $UI.EraseReference()
         $UI.PrintReference()
 
-        # 逐一 Ping 每個目標
+        # Ping each target one by one
         for ($idx = 0; $idx -lt $Targets.Count; $idx++) {
             $number = $idx + 1
             if ($Targets[$idx] -is [Separator]) { continue }
 
             $target = $Targets[$idx]
 
-            # 顯示箭頭指示目前正在 Ping 的目標
+            # Show arrow indicating the currently pinged target
             $UI.PrintArrow($number)
 
-            # 執行 Ping
+            # Execute ping
             $target.Send()
 
-            # 更新 UI
+            # Update UI
             $UI.ErasePingTarget($number)
             $UI.PrintPingTarget($target, $number)
 
-            # 寫入日誌
+            # Write log
             if (-not [string]::IsNullOrEmpty($LogDirectory)) {
                 $UI.WriteLog($LogDirectory, $target)
             }
 
-            # 處理按鍵
+            # Handle key input
             Invoke-KeyHandler -UI $UI -Targets $Targets
 
-            # 短暫等待後繼續下一個目標
+            # Brief wait before next target
             Start-Sleep -Milliseconds ([int]($PingInterval * 1000))
 
-            # 清除箭頭
+            # Clear arrow
             $UI.EraseArrow($number)
         }
 
-        # 一輪完成後，在最後一個目標顯示箭頭並等待
+        # After one round, show arrow at the last target and wait
         $lastIdx = $Targets.Count
         $UI.PrintArrow($lastIdx)
         Start-Sleep -Milliseconds ([int]($AllTargetInterval * 1000))
         $UI.EraseArrow($lastIdx)
         $UI.ErasePingTarget($lastIdx + 1)
 
-        # 處理按鍵
+        # Handle key input
         Invoke-KeyHandler -UI $UI -Targets $Targets
     }
 }
 
 # ============================================================
-# 非同步模式主迴圈 — 同時對所有目標發送 Ping
+# Async mode main loop — ping all targets simultaneously
 # ============================================================
 
 function Start-AsyncMode {
     param(
-        [ConsoleUI]$UI,
+        [object]$UI,
         [System.Collections.Generic.List[object]]$Targets,
         [string]$LogDirectory,
         [double]$AllTargetInterval,
@@ -231,7 +248,7 @@ function Start-AsyncMode {
     )
 
     while ($true) {
-        # 檢測終端機尺寸變化
+        # Detect terminal size changes
         $newW = [System.Console]::WindowWidth
         $newH = [System.Console]::WindowHeight
         if ($newW -ne $UI.Width -or $newH -ne $UI.Height) {
@@ -257,7 +274,7 @@ function Start-AsyncMode {
         $UI.EraseReference()
         $UI.PrintReference()
 
-        # 閃爍箭頭（可選）
+        # Blink arrows (optional)
         if ($BlinkArrowEnabled) {
             for ($i = 0; $i -lt $Targets.Count; $i++) {
                 if ($Targets[$i] -is [Separator]) { continue }
@@ -265,10 +282,10 @@ function Start-AsyncMode {
             }
         }
 
-        # 記錄開始時間
+        # Record start time
         $start = [System.Diagnostics.Stopwatch]::StartNew()
 
-        # 收集非 Separator 的目標以進行並行 Ping
+        # Collect non-Separator targets for parallel ping
         $pingTargets = @()
         $pingIndices = @()
         for ($i = 0; $i -lt $Targets.Count; $i++) {
@@ -277,39 +294,71 @@ function Start-AsyncMode {
             $pingIndices += $i
         }
 
-        # 使用 PowerShell 7 的 ForEach-Object -Parallel 並行 Ping
-        # 由於 -Parallel 在新的 Runspace 執行，無法直接呼叫物件方法
-        # 改用 Runspace Pool 實作真正的並行處理
-        $runspacePool = [System.Management.Automation.Runspaces.RunspacePool]::new(1, $pingTargets.Count, [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault(), [System.Management.Automation.Host.PSHost]::Default)
-
-        # 使用 Jobs 並行 Ping 每個目標
+        # Use PowerShell 7 parallel ping via ThreadJob
         $jobs = @()
         foreach ($t in $pingTargets) {
-            $job = Start-ThreadJob -ScriptBlock {
-                param($addr)
-                try {
-                    $reply = Test-Connection -TargetName $addr -Count 1 -TimeoutSeconds 1 -Ping -ErrorAction Stop
-                    if ($reply.Status -eq 'Success') {
-                        $ttl = -1
-                        if ($null -ne $reply.Reply -and $null -ne $reply.Reply.Options) {
-                            $ttl = [int]$reply.Reply.Options.Ttl
+            if ($t.TcpPort -gt 0) {
+                # TCP ping mode
+                $job = Start-ThreadJob -ScriptBlock {
+                    param($addr, $port, $isWin)
+                    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+                    try {
+                        if ($isWin) {
+                            $tnc = Test-NetConnection -ComputerName $addr -Port $port -WarningAction SilentlyContinue -ErrorAction Stop
+                            $sw.Stop()
+                            if ($tnc.TcpTestSucceeded) {
+                                return @{ Success = $true; RTT = [double]$sw.Elapsed.TotalMilliseconds; TTL = -1 }
+                            }
+                            return @{ Success = $false; RTT = 0; TTL = 0 }
                         }
-                        return @{ Success = $true; RTT = [double]$reply.Latency; TTL = $ttl }
+                        else {
+                            $hpingOutput = & hping3 -S -p $port -c 1 $addr 2>&1
+                            $sw.Stop()
+                            $outputStr = $hpingOutput -join "`n"
+                            if ($outputStr -match 'flags=SA' -or $outputStr -match 'flags=S\.A') {
+                                $rtt = [double]$sw.Elapsed.TotalMilliseconds
+                                $ttl = -1
+                                if ($outputStr -match 'rtt=([\d.]+)\s*ms') { $rtt = [double]$Matches[1] }
+                                if ($outputStr -match 'ttl=(\d+)') { $ttl = [int]$Matches[1] }
+                                return @{ Success = $true; RTT = $rtt; TTL = $ttl }
+                            }
+                            return @{ Success = $false; RTT = 0; TTL = 0 }
+                        }
                     }
-                    return @{ Success = $false; RTT = 0; TTL = 0 }
-                }
-                catch {
-                    return @{ Success = $false; RTT = 0; TTL = 0 }
-                }
-            } -ArgumentList $t.Address
+                    catch {
+                        $sw.Stop()
+                        return @{ Success = $false; RTT = 0; TTL = 0 }
+                    }
+                } -ArgumentList $t.Address, $t.TcpPort, ($global:IsWindows -or ($null -eq $global:IsWindows -and [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)))
+            }
+            else {
+                # ICMP ping mode
+                $job = Start-ThreadJob -ScriptBlock {
+                    param($addr)
+                    try {
+                        $reply = Test-Connection -TargetName $addr -Count 1 -TimeoutSeconds 1 -Ping -ErrorAction Stop
+                        if ($reply.Status -eq 'Success') {
+                            $ttl = -1
+                            if ($null -ne $reply.Reply -and $null -ne $reply.Reply.Options) {
+                                $ttl = [int]$reply.Reply.Options.Ttl
+                            }
+                            return @{ Success = $true; RTT = [double]$reply.Latency; TTL = $ttl }
+                        }
+                        return @{ Success = $false; RTT = 0; TTL = 0 }
+                    }
+                    catch {
+                        return @{ Success = $false; RTT = 0; TTL = 0 }
+                    }
+                } -ArgumentList $t.Address
+            }
             $jobs += @{ Job = $job; Target = $t }
         }
 
-        # 等待所有 Jobs 完成
+        # Wait for all jobs to complete
         $allJobs = $jobs | ForEach-Object { $_.Job }
         $null = Wait-Job -Job $allJobs -Timeout 5
 
-        # 收集結果並更新每個目標
+        # Collect results and update each target
         foreach ($entry in $jobs) {
             $result = Receive-Job -Job $entry.Job -ErrorAction SilentlyContinue
             Remove-Job -Job $entry.Job -Force -ErrorAction SilentlyContinue
@@ -329,7 +378,7 @@ function Start-AsyncMode {
 
         $elapsed = $start.Elapsed.TotalSeconds
 
-        # 更新所有目標的 UI 顯示
+        # Update UI display for all targets
         for ($i = 0; $i -lt $Targets.Count; $i++) {
             $number = $i + 1
             if ($Targets[$i] -is [Separator]) { continue }
@@ -341,31 +390,31 @@ function Start-AsyncMode {
                 $UI.EraseArrow($number)
             }
 
-            # 寫入日誌
+            # Write log
             if (-not [string]::IsNullOrEmpty($LogDirectory)) {
                 $UI.WriteLog($LogDirectory, $Targets[$i])
             }
         }
 
-        # 更新旋轉動畫
+        # Update spinner animation
         $UI.IncrementStep()
         $UI.EraseTitle()
         $UI.PrintTitle($true)
 
-        # 等待至少 AllTargetInterval 秒
+        # Wait at least AllTargetInterval seconds
         if ($elapsed -lt $AllTargetInterval) {
             Start-Sleep -Milliseconds ([int](($AllTargetInterval - $elapsed) * 1000))
         }
 
         Start-Sleep -Milliseconds ([int]($AllTargetInterval * 1000))
 
-        # 處理按鍵
+        # Handle key input
         Invoke-KeyHandler -UI $UI -Targets $Targets
     }
 }
 
 # ============================================================
-# 主程式啟動
+# Main program startup
 # ============================================================
 
 try {
@@ -383,11 +432,11 @@ try {
     }
 }
 catch {
-    # 捕捉 Ctrl+C 或其他中斷
+    # Catch Ctrl+C or other interrupts
     if ($ui) { $ui.Cleanup() }
     throw
 }
 finally {
-    # 確保終端機設定還原
+    # Ensure terminal settings are restored
     if ($ui) { $ui.Cleanup() }
 }

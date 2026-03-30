@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*-
-# Integration.Tests.ps1 — 整合測試
-# 使用 Pester 5 測試框架
+# Integration.Tests.ps1 — Integration tests
+# Uses Pester 5 test framework
 #
-# 驗證從設定檔讀取到建立 PingTarget 的端到端流程。
+# Verifies the end-to-end flow from reading configuration files to creating PingTarget objects.
 
 BeforeAll {
-    # 載入所有模組
+    # Load all modules
     . "$PSScriptRoot/../lib/PingTarget.ps1"
     . "$PSScriptRoot/../lib/ConfigParser.ps1"
     . "$PSScriptRoot/../lib/ConsoleUI.ps1"
 
-    # 輔助函式 — 建立暫時設定檔
+    # Helper function — create a temporary config file
     function New-TempConfig {
         param([string]$Content)
         $tempFile = Join-Path ([System.IO.Path]::GetTempPath()) "deadman-integ-$(New-Guid).conf"
@@ -19,7 +19,7 @@ BeforeAll {
     }
 }
 
-Describe '端到端整合測試' {
+Describe 'End-to-end integration tests' {
 
     AfterEach {
         Get-ChildItem ([System.IO.Path]::GetTempPath()) -Filter 'deadman-integ-*.conf' |
@@ -27,14 +27,14 @@ Describe '端到端整合測試' {
     }
 
     # ========================================================
-    # 完整流程測試
+    # Complete flow tests
     # ========================================================
 
-    Context '設定檔解析到 PingTarget 物件建立' {
+    Context 'Config file parsing to PingTarget object creation' {
 
-        It '應從設定檔正確建立整個目標列表' {
+        It 'Should correctly create the full target list from a config file' {
             $config = New-TempConfig -Content @"
-# 測試設定檔
+# Test config file
 googleDNS	8.8.8.8
 quad9		9.9.9.9
 ---
@@ -42,35 +42,35 @@ cloudflare	1.1.1.1
 "@
             $targets = Read-DeadmanConfig -Path $config -RttScale 15
 
-            # 確認目標數量
+            # Verify target count
             $targets.Count | Should -Be 4
 
-            # 確認第一個目標
+            # Verify first target
             $targets[0].GetType().Name | Should -Be 'PingTarget'
             $targets[0].Name | Should -Be 'googleDNS'
             $targets[0].Address | Should -Be '8.8.8.8'
             $targets[0].RttScale | Should -Be 15
 
-            # 確認分隔線
+            # Verify separator
             $targets[2].GetType().Name | Should -Be 'Separator'
 
-            # 確認最後一個目標
+            # Verify last target
             $targets[3].Name | Should -Be 'cloudflare'
             $targets[3].Address | Should -Be '1.1.1.1'
         }
     }
 
     # ========================================================
-    # PingTarget 完整生命週期測試
+    # PingTarget full lifecycle tests
     # ========================================================
 
-    Context 'PingTarget 完整生命週期' {
+    Context 'PingTarget full lifecycle' {
 
-        It '建立 → 接收結果 → 重置 → 再次接收結果的完整流程' {
+        It 'Create → receive results → reset → receive results again full flow' {
             $target = [PingTarget]::new('test', '8.8.8.8')
             $target.RttScale = 10
 
-            # 第一次 Ping 成功
+            # First ping success
             $target.Sent = 1
             $res1 = [PingResult]::new($true, [PingErrorCode]::Success, 5.0, 64)
             $target.ConsumeResult($res1)
@@ -79,7 +79,7 @@ cloudflare	1.1.1.1
             $target.RTT | Should -Be 5.0
             $target.ResultHistory.Count | Should -Be 1
 
-            # 第二次 Ping 失敗
+            # Second ping failure
             $target.Sent = 2
             $res2 = [PingResult]::new($false, [PingErrorCode]::Failed, 0, 0)
             $target.ConsumeResult($res2)
@@ -89,7 +89,7 @@ cloudflare	1.1.1.1
             $target.ResultHistory.Count | Should -Be 2
             $target.ResultHistory[0] | Should -Be 'X'
 
-            # 重置統計
+            # Reset statistics
             $target.Refresh()
 
             $target.State | Should -BeFalse
@@ -97,7 +97,7 @@ cloudflare	1.1.1.1
             $target.Loss | Should -Be 0
             $target.ResultHistory.Count | Should -Be 0
 
-            # 重置後再次接收結果
+            # Receive results again after reset
             $target.Sent = 1
             $res3 = [PingResult]::new($true, [PingErrorCode]::Success, 12.0, 128)
             $target.ConsumeResult($res3)
@@ -110,12 +110,12 @@ cloudflare	1.1.1.1
     }
 
     # ========================================================
-    # ConsoleUI 版面配置整合測試
+    # ConsoleUI layout integration tests
     # ========================================================
 
-    Context 'ConsoleUI 版面配置與目標列表整合' {
+    Context 'ConsoleUI layout and target list integration' {
 
-        It '應正確處理包含分隔線的目標列表' {
+        It 'Should correctly handle target list containing separators' {
             $config = New-TempConfig -Content @"
 google	8.8.8.8
 ---
@@ -125,23 +125,23 @@ quad9	9.9.9.9
 
             try {
                 $ui = [ConsoleUI]::new(10)
-                # UpdateLayout 不應因 Separator 而拋出例外
+                # UpdateLayout should not throw due to Separator
                 { $ui.UpdateLayout($targets) } | Should -Not -Throw
             }
             catch {
-                # 非互動式環境可能無法建立 ConsoleUI
-                Set-ItResult -Skipped -Because '非互動式環境無法初始化 Console'
+                # Non-interactive environments may fail to create ConsoleUI
+                Set-ItResult -Skipped -Because 'Non-interactive environment cannot initialize Console'
             }
         }
     }
 
     # ========================================================
-    # IPv6 位址支援測試
+    # IPv6 address support tests
     # ========================================================
 
-    Context 'IPv6 位址支援' {
+    Context 'IPv6 address support' {
 
-        It '應正確解析 IPv6 位址' {
+        It 'Should correctly parse IPv6 addresses' {
             $config = New-TempConfig -Content "kame6	2001:200:dff:fff1:216:3eff:feb1:44d7"
             $targets = Read-DeadmanConfig -Path $config
 
@@ -150,12 +150,47 @@ quad9	9.9.9.9
     }
 
     # ========================================================
-    # 大量目標測試
+    # TCP ping integration tests
     # ========================================================
 
-    Context '效能與邊界條件' {
+    Context 'TCP ping configuration integration' {
 
-        It '應能處理大量目標（100 個）' {
+        It 'Should correctly create TCP ping targets from config' {
+            $config = New-TempConfig -Content @"
+# ICMP target
+googleDNS	8.8.8.8
+---
+# TCP target
+web-https	10.0.0.1	via=tcp port=443
+web-http	10.0.0.2	via=tcp port=80
+"@
+            $targets = Read-DeadmanConfig -Path $config -RttScale 10
+
+            $targets.Count | Should -Be 4
+            $targets[0].TcpPort | Should -Be 0
+            $targets[2].GetType().Name | Should -Be 'PingTarget'
+            $targets[2].Name | Should -Be 'web-https'
+            $targets[2].TcpPort | Should -Be 443
+            $targets[3].TcpPort | Should -Be 80
+        }
+
+        It 'TCP target should preserve TcpPort after Refresh' {
+            $config = New-TempConfig -Content "web 10.0.0.1 via=tcp port=443"
+            $targets = Read-DeadmanConfig -Path $config
+
+            $targets[0].TcpPort | Should -Be 443
+            $targets[0].Refresh()
+            $targets[0].TcpPort | Should -Be 443
+        }
+    }
+
+    # ========================================================
+    # Performance and boundary condition tests
+    # ========================================================
+
+    Context 'Performance and boundary conditions' {
+
+        It 'Should handle a large number of targets (100)' {
             $lines = @()
             for ($i = 1; $i -le 100; $i++) {
                 $lines += "host$i`t10.0.0.$($i % 256)"
@@ -166,10 +201,10 @@ quad9	9.9.9.9
             $targets.Count | Should -Be 100
         }
 
-        It '應能處理空的設定檔' {
+        It 'Should handle an empty config file' {
             $config = New-TempConfig -Content @"
-# 只有註解
-# 沒有任何目標
+# Only comments
+# No targets
 "@
             $targets = Read-DeadmanConfig -Path $config
 
@@ -178,29 +213,29 @@ quad9	9.9.9.9
     }
 
     # ========================================================
-    # 真實 Ping 測試（localhost）
+    # Real ping tests (localhost)
     # ========================================================
 
-    Context '真實 Ping 測試' {
+    Context 'Real ping tests' {
 
-        It '對 localhost（127.0.0.1）的 Ping 應成功' -Tag 'Network' {
+        It 'Ping to localhost (127.0.0.1) should succeed' -Tag 'Network' {
             $target = [PingTarget]::new('localhost', '127.0.0.1')
             $target.Send()
 
             $target.Sent | Should -Be 1
 
-            # 某些環境（如 macOS 非 root、CI/CD 容器）可能阻擋 ICMP
-            # 因此僅驗證 Send() 不拋出例外且 Sent 計數正確
+            # Some environments (e.g. macOS non-root, CI/CD containers) may block ICMP
+            # So we only verify Send() does not throw and Sent count is correct
             if (-not $target.State) {
-                Set-ItResult -Skipped -Because '環境可能阻擋 ICMP（需要管理員權限或防火牆設定）'
+                Set-ItResult -Skipped -Because 'Environment may block ICMP (requires admin privileges or firewall configuration)'
             }
             else {
                 $target.RTT | Should -BeGreaterOrEqual 0
             }
         }
 
-        It '對不可達位址的 Ping 應失敗' -Tag 'Network' {
-            # 使用 TEST-NET 範圍的位址（RFC 5737），通常不可達
+        It 'Ping to unreachable address should fail' -Tag 'Network' {
+            # Use TEST-NET range address (RFC 5737), typically unreachable
             $target = [PingTarget]::new('unreachable', '192.0.2.1')
             $target.Send()
 
