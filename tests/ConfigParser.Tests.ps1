@@ -3,9 +3,8 @@
 # Uses Pester 5 test framework
 
 BeforeAll {
-    # Load dependent modules (class definitions must be loaded first)
-    . "$PSScriptRoot/../lib/PingTarget.ps1"
-    . "$PSScriptRoot/../lib/ConfigParser.ps1"
+    # Load class and function definitions from the single-file script
+    . "$PSScriptRoot/../deadman.ps1"
 
     # Helper function — create a temporary config file and return its path
     function New-TempConfig {

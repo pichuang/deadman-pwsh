@@ -7,9 +7,8 @@
 # Here we primarily verify layout calculation logic (UpdateLayout).
 
 BeforeAll {
-    # Load dependent modules
-    . "$PSScriptRoot/../lib/PingTarget.ps1"
-    . "$PSScriptRoot/../lib/ConsoleUI.ps1"
+    # Load class and function definitions from the single-file script
+    . "$PSScriptRoot/../deadman.ps1"
 
     # Helper function — create a List with specified targets
     function New-TargetList {

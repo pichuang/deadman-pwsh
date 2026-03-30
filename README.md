@@ -123,12 +123,8 @@ Invoke-Pester ./tests/ -Output Detailed -ExcludeTag 'Network'
 
 ```
 deadman-pwsh/
-├── deadman.ps1           # Main entry point (parameter parsing, main loop)
+├── deadman.ps1           # Single-file program (all classes, parser, UI, and main loop)
 ├── deadman.conf          # Example configuration file
-├── lib/
-│   ├── PingTarget.ps1    # PingTarget / PingResult class definitions
-│   ├── ConfigParser.ps1  # Configuration file parsing function
-│   └── ConsoleUI.ps1     # Terminal UI rendering class
 ├── tests/
 │   ├── PingTarget.Tests.ps1    # PingTarget unit tests
 │   ├── ConfigParser.Tests.ps1  # ConfigParser unit tests
@@ -137,6 +133,8 @@ deadman-pwsh/
 ├── README.md             # English documentation
 └── readme.zh-tw.md       # Chinese (Traditional) documentation
 ```
+
+> **Note**: `deadman.ps1` is fully self-contained — just download this single file and `deadman.conf` to get started.
 
 ## Differences from Original
 

@@ -5,10 +5,8 @@
 # Verifies the end-to-end flow from reading configuration files to creating PingTarget objects.
 
 BeforeAll {
-    # Load all modules
-    . "$PSScriptRoot/../lib/PingTarget.ps1"
-    . "$PSScriptRoot/../lib/ConfigParser.ps1"
-    . "$PSScriptRoot/../lib/ConsoleUI.ps1"
+    # Load class and function definitions from the single-file script
+    . "$PSScriptRoot/../deadman.ps1"
 
     # Helper function — create a temporary config file
     function New-TempConfig {

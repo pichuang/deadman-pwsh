@@ -122,20 +122,19 @@ Invoke-Pester ./tests/ -Output Detailed -ExcludeTag 'Network'
 ## 專案結構
 
 ```
-deadman-win/
-├── deadman.ps1           # 主程式進入點（參數解析、主迴圈）
+deadman-pwsh/
+├── deadman.ps1           # 單檔程式（所有類別、解析器、UI、主迴圈皆包含在內）
 ├── deadman.conf          # 範例設定檔
-├── lib/
-│   ├── PingTarget.ps1    # PingTarget / PingResult 類別定義
-│   ├── ConfigParser.ps1  # 設定檔解析函式
-│   └── ConsoleUI.ps1     # 終端機 UI 繪製類別
 ├── tests/
 │   ├── PingTarget.Tests.ps1    # PingTarget 單元測試
 │   ├── ConfigParser.Tests.ps1  # ConfigParser 單元測試
 │   ├── ConsoleUI.Tests.ps1     # ConsoleUI 單元測試
 │   └── Integration.Tests.ps1   # 整合測試
-└── README.md
+├── README.md             # 英文文件
+└── readme.zh-tw.md       # 中文（繁體）文件
 ```
+
+> **說明**：`deadman.ps1` 是完全獨立的單檔程式 — 只需下載這個檔案和 `deadman.conf` 即可開始使用。
 
 ## 與原版差異
 

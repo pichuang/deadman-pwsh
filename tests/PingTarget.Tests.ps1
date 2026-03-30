@@ -3,8 +3,8 @@
 # Uses Pester 5 test framework
 
 BeforeAll {
-    # Load class definitions
-    . "$PSScriptRoot/../lib/PingTarget.ps1"
+    # Load class and function definitions from the single-file script
+    . "$PSScriptRoot/../deadman.ps1"
 }
 
 Describe 'PingResult class' {
