@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 # WindowsCompat.Tests.ps1 — Windows compatibility and cross-version tests
 # Uses Pester 5 test framework
 #

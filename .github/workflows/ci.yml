@@ -54,7 +54,7 @@ jobs:
           $config.Run.Exit = $true
           $config.Output.Verbosity = 'Detailed'
           $config.TestResult.Enabled = $true
-          $config.TestResult.OutputFormat = 'NUnitXml'
+          $config.TestResult.OutputFormat = 'JUnitXml'
           $config.TestResult.OutputPath = './test-results.xml'
           $config.Filter.ExcludeTag = @('Network')
 
@@ -66,11 +66,11 @@ jobs:
         run: |
           if (Test-Path './test-results.xml') {
             [xml]$xml = Get-Content './test-results.xml'
-            $r = $xml.'test-results'
-            $total   = [int]$r.total
-            $passed  = [int]$r.total - [int]$r.failures - [int]$r.errors - [int]$r.skipped
-            $failed  = [int]$r.failures + [int]$r.errors
-            $skipped = [int]$r.skipped
+            $ts = $xml.testsuites
+            $total   = [int]$ts.tests
+            $failed  = [int]$ts.failures + [int]$ts.errors
+            $skipped = [int]$ts.disabled
+            $passed  = $total - $failed - $skipped
             $icon = if ($failed -eq 0) { ':white_check_mark:' } else { ':x:' }
             $summary = "## $icon Test Results - ${{ matrix.os }} / PowerShell 7`n`n"
             $summary += "| Metric | Count |`n|--------|-------|`n"
@@ -78,7 +78,7 @@ jobs:
             $summary += "| **Failed** | $failed |`n| **Skipped** | $skipped |`n"
             if ($failed -gt 0) {
               $summary += "`n### Failed Tests`n"
-              $cases = $xml.SelectNodes('//test-case[@success="False"]')
+              $cases = $xml.SelectNodes('//testcase[failure]')
               foreach ($tc in $cases) {
                 $summary += "`n- **$($tc.name)**`n  > $($tc.failure.message)`n"
               }
@@ -102,7 +102,7 @@ jobs:
         with:
           name: "Tests (${{ matrix.os }} / PowerShell 7)"
           path: './test-results.xml'
-          reporter: dotnet-nunit
+          reporter: java-junit
           fail-on-empty: 'false'
 
   test-powershell:
@@ -140,7 +140,7 @@ jobs:
           $config.Run.Exit = $true
           $config.Output.Verbosity = 'Detailed'
           $config.TestResult.Enabled = $true
-          $config.TestResult.OutputFormat = 'NUnitXml'
+          $config.TestResult.OutputFormat = 'JUnitXml'
           $config.TestResult.OutputPath = './test-results.xml'
           $config.Filter.ExcludeTag = @('Network')
 
@@ -152,11 +152,11 @@ jobs:
         run: |
           if (Test-Path './test-results.xml') {
             [xml]$xml = Get-Content './test-results.xml'
-            $r = $xml.'test-results'
-            $total   = [int]$r.total
-            $passed  = [int]$r.total - [int]$r.failures - [int]$r.errors - [int]$r.skipped
-            $failed  = [int]$r.failures + [int]$r.errors
-            $skipped = [int]$r.skipped
+            $ts = $xml.testsuites
+            $total   = [int]$ts.tests
+            $failed  = [int]$ts.failures + [int]$ts.errors
+            $skipped = [int]$ts.disabled
+            $passed  = $total - $failed - $skipped
             if ($failed -eq 0) { $icon = ':white_check_mark:' } else { $icon = ':x:' }
             $summary = "## $icon Test Results - ${{ matrix.os }} / Windows PowerShell 5.1`n`n"
             $summary += "| Metric | Count |`n|--------|-------|`n"
@@ -164,7 +164,7 @@ jobs:
             $summary += "| **Failed** | $failed |`n| **Skipped** | $skipped |`n"
             if ($failed -gt 0) {
               $summary += "`n### Failed Tests`n"
-              $cases = $xml.SelectNodes('//test-case[@success="False"]')
+              $cases = $xml.SelectNodes('//testcase[failure]')
               foreach ($tc in $cases) {
                 $summary += "`n- **$($tc.name)**`n  > $($tc.failure.message)`n"
               }
@@ -188,5 +188,5 @@ jobs:
         with:
           name: "Tests (${{ matrix.os }} / Windows PowerShell 5.1)"
           path: './test-results.xml'
-          reporter: dotnet-nunit
+          reporter: java-junit
           fail-on-empty: 'false'

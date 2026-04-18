@@ -1,4 +1,4 @@
-#!/usr/bin/env pwsh
+﻿#!/usr/bin/env pwsh
 # -*- coding: utf-8 -*-
 # deadman.ps1 — Main entry point (single-file edition)
 # Ported from https://github.com/upa/deadman (MIT License)
@@ -343,8 +343,8 @@ class PingTarget {
             # ASCII fallback for consoles without Unicode support
             if ($res.RTT -lt ($scale * 1)) { return '_' }
             if ($res.RTT -lt ($scale * 2)) { return '.' }
-            if ($res.RTT -lt ($scale * 3)) { return 'o' }
-            if ($res.RTT -lt ($scale * 4)) { return 'O' }
+            if ($res.RTT -lt ($scale * 3)) { return ':' }
+            if ($res.RTT -lt ($scale * 4)) { return '-' }
             if ($res.RTT -lt ($scale * 5)) { return '+' }
             if ($res.RTT -lt ($scale * 6)) { return '=' }
             if ($res.RTT -lt ($scale * 7)) { return '#' }

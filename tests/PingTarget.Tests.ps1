@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 # PingTarget.Tests.ps1 — Unit tests for PingTarget and PingResult classes
 # Uses Pester 5 test framework
 

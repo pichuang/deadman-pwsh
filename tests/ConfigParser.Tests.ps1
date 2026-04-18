@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 # ConfigParser.Tests.ps1 — Unit tests for configuration file parsing function
 # Uses Pester 5 test framework
 

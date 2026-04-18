@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 # ConsoleUI.Tests.ps1 — Unit tests for the ConsoleUI class
 # Uses Pester 5 test framework
 #
@@ -207,6 +207,10 @@ Describe 'ConsoleUI.WriteLog' {
     }
 
     It 'Should create log directory and file' {
+        if ($null -eq $script:ui) {
+            Set-ItResult -Skipped -Because 'Non-interactive environment cannot initialize Console'
+            return
+        }
         $target = [PingTarget]::new('testhost', '8.8.8.8')
         $target.Sent = 1
         $target.RTT = 10.5
@@ -219,6 +223,10 @@ Describe 'ConsoleUI.WriteLog' {
     }
 
     It 'Log content should contain timestamp and statistics' {
+        if ($null -eq $script:ui) {
+            Set-ItResult -Skipped -Because 'Non-interactive environment cannot initialize Console'
+            return
+        }
         $target = [PingTarget]::new('testhost', '8.8.8.8')
         $target.Sent = 5
         $target.RTT = 12.3
@@ -235,6 +243,10 @@ Describe 'ConsoleUI.WriteLog' {
     }
 
     It 'Should not write any file when log directory path is empty' {
+        if ($null -eq $script:ui) {
+            Set-ItResult -Skipped -Because 'Non-interactive environment cannot initialize Console'
+            return
+        }
         $target = [PingTarget]::new('testhost', '8.8.8.8')
 
         # Should not throw an exception
