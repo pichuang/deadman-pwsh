@@ -1,0 +1,139 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '[0-9]*'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build release artifacts
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      hashes: ${{ steps.hash.outputs.hashes }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Get version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Create release archive
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ARCHIVE="deadman-pwsh-${VERSION}.zip"
+
+          # Create zip with essential files
+          zip -r "${ARCHIVE}" \
+            deadman.ps1 \
+            deadman.conf \
+            README.md \
+            README.zh-tw.md \
+            LICENSE \
+            SECURITY.md \
+            tests/
+
+          echo "archive=${ARCHIVE}" >> "$GITHUB_ENV"
+          echo "Created ${ARCHIVE}"
+
+      - name: Generate SHA256 checksums
+        id: hash
+        run: |
+          sha256sum "${{ env.archive }}" > checksums-sha256.txt
+          cat checksums-sha256.txt
+
+          # Base64-encode hashes for provenance (required format)
+          HASHES=$(sha256sum "${{ env.archive }}" | base64 -w0)
+          echo "hashes=${HASHES}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-artifacts
+          path: |
+            ${{ env.archive }}
+            checksums-sha256.txt
+          retention-days: 5
+
+  provenance:
+    name: Generate SLSA provenance
+    needs: build
+    permissions:
+      actions: read
+      id-token: write
+      contents: write
+      attestations: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-artifacts
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
+        with:
+          subject-path: "*.zip"
+
+  release:
+    name: Publish GitHub Release
+    needs: [build, provenance]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Download artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-artifacts
+
+      - name: Generate release notes
+        id: notes
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          result-encoding: string
+          script: |
+            const tag = context.ref.replace('refs/tags/', '');
+
+            // Get commits since last tag
+            let body = `## deadman-pwsh ${tag}\n\n`;
+            body += `### Release artifacts\n\n`;
+            body += `| File | Description |\n`;
+            body += `|------|-------------|\n`;
+            body += `| \`deadman-pwsh-${tag}.zip\` | Complete release archive |\n`;
+            body += `| \`checksums-sha256.txt\` | SHA-256 checksums |\n\n`;
+            body += `### Verification\n\n`;
+            body += `\`\`\`bash\n`;
+            body += `# Verify checksum\n`;
+            body += `sha256sum -c checksums-sha256.txt\n\n`;
+            body += `# Verify SLSA provenance (requires gh CLI)\n`;
+            body += `gh attestation verify deadman-pwsh-${tag}.zip -o pichuang\n`;
+            body += `\`\`\`\n\n`;
+            body += `### System Requirements\n\n`;
+            body += `- PowerShell 5.1+ (Windows PowerShell) or PowerShell 7+\n`;
+            body += `- Windows Server 2019 / 2022 / Windows 10 / Windows 11\n`;
+            body += `- For TCP ping on macOS/Linux: hping3 (requires sudo)\n`;
+            return body;
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          name: "deadman-pwsh ${{ github.ref_name }}"
+          body: ${{ steps.notes.outputs.result }}
+          files: |
+            deadman-pwsh-*.zip
+            checksums-sha256.txt
+          fail_on_unmatched_files: true
+          make_latest: true
