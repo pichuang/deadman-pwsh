@@ -31,14 +31,11 @@ jobs:
           ARCHIVE="deadman-pwsh-${VERSION}.zip"
 
           # Create zip with essential files
-          zip -r "${ARCHIVE}" \
+          zip "${ARCHIVE}" \
             deadman.ps1 \
             deadman.conf \
             README.md \
-            README.zh-tw.md \
-            LICENSE \
-            SECURITY.md \
-            tests/
+            README.zh-tw.md
 
           echo "archive=${ARCHIVE}" >> "$GITHUB_ENV"
           echo "Created ${ARCHIVE}"
