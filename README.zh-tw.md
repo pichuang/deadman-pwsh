@@ -1,6 +1,7 @@
 # Dead Man (PowerShell 版)
 
 [![CI](https://github.com/pichuang/deadman-pwsh/actions/workflows/ci.yml/badge.svg)](https://github.com/pichuang/deadman-pwsh/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/pichuang/deadman-pwsh/badge)](https://scorecard.dev/viewer/?uri=github.com/pichuang/deadman-pwsh)
 
 > 改寫自 [upa/deadman](https://github.com/upa/deadman)（MIT License）
 
