@@ -467,7 +467,7 @@ function Read-DeadmanConfig {
 # ============================================================
 
 $script:TITLE_PROGNAME = "Dead Man PWSH"
-$script:TITLE_VERSION = "[ver 2026.03.31-ps]"
+$script:TITLE_VERSION = "[ver 2026.04.19-ps]"
 $script:TITLE_VERTIC_LENGTH = 4
 $script:ARROW = " > "
 $script:REAR  = "   "
