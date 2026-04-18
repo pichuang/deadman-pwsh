@@ -1,10 +1,12 @@
 # Dead Man (PowerShell Edition)
 
+[![CI](https://github.com/pichuang/deadman-pwsh/actions/workflows/ci.yml/badge.svg)](https://github.com/pichuang/deadman-pwsh/actions/workflows/ci.yml)
+
 > Ported from [upa/deadman](https://github.com/upa/deadman) (MIT License)
 
 deadman is a host monitoring tool using ICMP Ping and TCP Ping. It checks whether hosts are alive via ICMP Echo or TCP SYN and displays results in real-time through a terminal UI.
 
-This version is fully implemented in **PowerShell 7+**, using the `System.Console` API for terminal rendering. Works on Windows, macOS, and Linux.
+This version is implemented in **PowerShell 5.1+** (recommended: PowerShell 7+), using the `System.Console` API for terminal rendering. Works on Windows, macOS, and Linux.
 
 ## Features
 
@@ -20,14 +22,30 @@ This version is fully implemented in **PowerShell 7+**, using the `System.Consol
 
 ## Prerequisites
 
-- **PowerShell 7.0** or later
-  - Windows: `winget install Microsoft.PowerShell`
+- **PowerShell 5.1** or later (PowerShell 7+ recommended for best experience)
+  - Windows 10 / Windows Server 2016+: Windows PowerShell 5.1 is built-in
+  - Windows: `winget install Microsoft.PowerShell` (for PowerShell 7)
   - macOS: `brew install powershell`
   - Linux: See [official installation guide](https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell-on-linux)
-- Async mode requires the `ThreadJob` module (built-in with PowerShell 7)
+- Async mode uses `Start-ThreadJob` on PowerShell 7+ or `Start-Job` on PowerShell 5.1
 - TCP ping on macOS/Linux requires [hping3](https://github.com/antirez/hping) (`brew install hping` / `apt install hping3`)
 - TCP ping on macOS/Linux requires `sudo` (root privileges) to send raw packets: `sudo pwsh ./deadman.ps1 ...`
 - TCP ping on Windows uses the built-in `Test-NetConnection` cmdlet
+
+### Windows Compatibility
+
+| OS | PowerShell 5.1 | PowerShell 7+ |
+|----|:-:|:-:|
+| Windows Server 2019 | ✅ | ✅ |
+| Windows Server 2022 | ✅ | ✅ |
+| Windows 10 | ✅ | ✅ |
+| Windows 11 | ✅ | ✅ |
+
+### Terminal & Character Display
+
+- **Windows Terminal** (recommended): Full Unicode bar chart support (▁▂▃▄▅▆▇█), best visual experience
+- **conhost** (legacy console): Automatically falls back to ASCII characters (`_.oO+=@#`) for RTT bar chart
+- To enable Unicode in conhost, run `chcp 65001` before executing the script, or use a font like **Cascadia Code**
 
 ## Quick Start
 
@@ -125,11 +143,15 @@ Invoke-Pester ./tests/ -Output Detailed -ExcludeTag 'Network'
 deadman-pwsh/
 ├── deadman.ps1           # Single-file program (all classes, parser, UI, and main loop)
 ├── deadman.conf          # Example configuration file
+├── .github/
+│   └── workflows/
+│       └── ci.yml        # GitHub Actions CI (Windows Server 2019/2022 × PS 5.1/7)
 ├── tests/
 │   ├── PingTarget.Tests.ps1    # PingTarget unit tests
 │   ├── ConfigParser.Tests.ps1  # ConfigParser unit tests
 │   ├── ConsoleUI.Tests.ps1     # ConsoleUI unit tests
-│   └── Integration.Tests.ps1   # Integration tests
+│   ├── Integration.Tests.ps1   # Integration tests
+│   └── WindowsCompat.Tests.ps1 # Windows compatibility tests
 ├── README.md             # English documentation
 └── readme.zh-tw.md       # Chinese (Traditional) documentation
 ```
@@ -140,10 +162,10 @@ deadman-pwsh/
 
 | Feature | Original (Python) | This Version (PowerShell) |
 |---------|-------------------|---------------------------|
-| Language | Python 3 + curses | PowerShell 7+ |
+| Language | Python 3 + curses | PowerShell 5.1+ |
 | UI Framework | curses | System.Console API |
 | Ping Implementation | subprocess (ping command) | Test-Connection Cmdlet |
-| Async | asyncio | ThreadJob / ForEach-Object -Parallel |
+| Async | asyncio | ThreadJob (PS7+) / Start-Job (PS5.1) |
 | SSH Relay | ✅ | ❌ (config compatible, but not used) |
 | SNMP Ping | ✅ | ❌ |
 | RouterOS API | ✅ | ❌ |

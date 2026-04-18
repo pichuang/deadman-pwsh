@@ -293,12 +293,22 @@ Describe 'PingTarget class' {
 
         It 'Sent count should increase after calling Send' {
             # Mock Test-Connection to return success
-            Mock Test-Connection {
-                return [PSCustomObject]@{
-                    Status  = 'Success'
-                    Latency = 10
-                    Reply   = [PSCustomObject]@{
-                        Options = [PSCustomObject]@{ Ttl = 64 }
+            if ($PSVersionTable.PSVersion.Major -ge 7) {
+                Mock Test-Connection {
+                    return [PSCustomObject]@{
+                        Status  = 'Success'
+                        Latency = 10
+                        Reply   = [PSCustomObject]@{
+                            Options = [PSCustomObject]@{ Ttl = 64 }
+                        }
+                    }
+                }
+            } else {
+                Mock Test-Connection {
+                    return [PSCustomObject]@{
+                        StatusCode          = 0
+                        ResponseTime        = 10
+                        ResponseTimeToLive  = 64
                     }
                 }
             }
@@ -310,12 +320,22 @@ Describe 'PingTarget class' {
         }
 
         It 'Should update state to alive on ping success' {
-            Mock Test-Connection {
-                return [PSCustomObject]@{
-                    Status  = 'Success'
-                    Latency = 5
-                    Reply   = [PSCustomObject]@{
-                        Options = [PSCustomObject]@{ Ttl = 128 }
+            if ($PSVersionTable.PSVersion.Major -ge 7) {
+                Mock Test-Connection {
+                    return [PSCustomObject]@{
+                        Status  = 'Success'
+                        Latency = 5
+                        Reply   = [PSCustomObject]@{
+                            Options = [PSCustomObject]@{ Ttl = 128 }
+                        }
+                    }
+                }
+            } else {
+                Mock Test-Connection {
+                    return [PSCustomObject]@{
+                        StatusCode          = 0
+                        ResponseTime        = 5
+                        ResponseTimeToLive  = 128
                     }
                 }
             }
@@ -342,7 +362,7 @@ Describe 'PingTarget class' {
         It 'TCP ping target should call SendTcp instead of ICMP ping' {
             # When TcpPort > 0, Send() should delegate to SendTcp()
             # Mock Test-NetConnection for Windows or hping3 for others
-            if ($global:IsWindows -or ($null -eq $global:IsWindows -and [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows))) {
+            if (Test-IsWindows) {
                 Mock Test-NetConnection {
                     return [PSCustomObject]@{ TcpTestSucceeded = $true }
                 }

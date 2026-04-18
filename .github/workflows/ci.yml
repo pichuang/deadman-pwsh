@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2019, windows-2022]
+        shell: [pwsh, powershell]
+        include:
+          - shell: pwsh
+            shell-name: 'PowerShell 7'
+          - shell: powershell
+            shell-name: 'Windows PowerShell 5.1'
+
+    runs-on: ${{ matrix.os }}
+    name: "${{ matrix.os }} / ${{ matrix.shell-name }}"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set console to UTF-8
+        shell: cmd
+        run: chcp 65001
+
+      - name: Install Pester 5
+        shell: ${{ matrix.shell }}
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module -Name Pester -MinimumVersion 5.0 -Force -Scope CurrentUser -SkipPublisherCheck
+          Import-Module Pester
+          Write-Host "Pester version: $((Get-Module Pester).Version)"
+          Write-Host "PowerShell version: $($PSVersionTable.PSVersion)"
+
+      - name: Install ThreadJob module (PowerShell 7 only)
+        if: matrix.shell == 'pwsh'
+        shell: pwsh
+        run: |
+          if (-not (Get-Module -Name ThreadJob -ListAvailable -ErrorAction SilentlyContinue)) {
+            Install-Module -Name ThreadJob -Force -Scope CurrentUser -SkipPublisherCheck
+          }
+
+      - name: Run Pester tests
+        id: pester
+        shell: ${{ matrix.shell }}
+        run: |
+          $config = New-PesterConfiguration
+          $config.Run.Path = './tests/'
+          $config.Run.Exit = $true
+          $config.Output.Verbosity = 'Detailed'
+          $config.TestResult.Enabled = $true
+          $config.TestResult.OutputFormat = 'NUnitXml'
+          $config.TestResult.OutputPath = './test-results.xml'
+          $config.Filter.ExcludeTag = @('Network')
+
+          Invoke-Pester -Configuration $config
+
+      - name: Generate test summary
+        if: always()
+        shell: ${{ matrix.shell }}
+        run: |
+          if (Test-Path './test-results.xml') {
+            [xml]$xml = Get-Content './test-results.xml'
+            $r = $xml.'test-results'
+            $total   = [int]$r.total
+            $passed  = [int]$r.total - [int]$r.failures - [int]$r.errors - [int]$r.skipped
+            $failed  = [int]$r.failures + [int]$r.errors
+            $skipped = [int]$r.skipped
+
+            $icon = if ($failed -eq 0) { ':white_check_mark:' } else { ':x:' }
+
+            $summary = @"
+          ## $icon Test Results — ${{ matrix.os }} / ${{ matrix.shell-name }}
+
+          | Metric | Count |
+          |--------|-------|
+          | **Total** | $total |
+          | **Passed** | $passed |
+          | **Failed** | $failed |
+          | **Skipped** | $skipped |
+          "@
+
+            if ($failed -gt 0) {
+              $summary += "`n`n### Failed Tests`n"
+              $cases = $xml.SelectNodes('//test-case[@success="False"]')
+              foreach ($tc in $cases) {
+                $name = $tc.name
+                $msg  = if ($tc.failure) { $tc.failure.message } else { 'N/A' }
+                $summary += "`n- **$name**`n  > $msg`n"
+              }
+            }
+
+            $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          }
+          else {
+            "## :warning: No test results found for ${{ matrix.os }} / ${{ matrix.shell-name }}" |
+              Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          }
+
+      - name: Upload test results artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.os }}-${{ matrix.shell }}
+          path: ./test-results.xml
+
+      - name: Publish test report
+        if: always() && hashFiles('./test-results.xml') != ''
+        uses: dorny/test-reporter@v1
+        with:
+          name: "Tests (${{ matrix.os }} / ${{ matrix.shell-name }})"
+          path: './test-results.xml'
+          reporter: dotnet-nunit

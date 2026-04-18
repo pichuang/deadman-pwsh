@@ -1,10 +1,12 @@
 # Dead Man (PowerShell 版)
 
+[![CI](https://github.com/pichuang/deadman-pwsh/actions/workflows/ci.yml/badge.svg)](https://github.com/pichuang/deadman-pwsh/actions/workflows/ci.yml)
+
 > 改寫自 [upa/deadman](https://github.com/upa/deadman)（MIT License）
 
 deadman 是一個使用 Ping 監控主機狀態的觀測工具。透過 ICMP Echo 或 TCP SYN 檢查主機是否存活，並以終端機 UI 即時顯示結果。
 
-此版本完全使用 **PowerShell 7+** 實作，透過 `System.Console` API 繪製終端機介面，適用於 Windows、macOS、Linux。
+此版本使用 **PowerShell 5.1+** 實作（建議使用 PowerShell 7+），透過 `System.Console` API 繪製終端機介面，適用於 Windows、macOS、Linux。
 
 ## 功能特色
 
@@ -20,14 +22,30 @@ deadman 是一個使用 Ping 監控主機狀態的觀測工具。透過 ICMP Ech
 
 ## 前置條件
 
-- **PowerShell 7.0** 或更新版本
-  - Windows：`winget install Microsoft.PowerShell`
+- **PowerShell 5.1** 或更新版本（建議使用 PowerShell 7+ 以獲得最佳體驗）
+  - Windows 10 / Windows Server 2016+：Windows PowerShell 5.1 為內建
+  - Windows：`winget install Microsoft.PowerShell`（安裝 PowerShell 7）
   - macOS：`brew install powershell`
   - Linux：參考 [官方安裝指南](https://learn.microsoft.com/zh-tw/powershell/scripting/install/installing-powershell-on-linux)
-- 非同步模式需要 `ThreadJob` 模組（PowerShell 7 內建）
+- 非同步模式在 PowerShell 7+ 使用 `Start-ThreadJob`，在 PowerShell 5.1 使用 `Start-Job`
 - macOS/Linux 的 TCP Ping 需要安裝 [hping3](https://github.com/antirez/hping)（`brew install hping` / `apt install hping3`）
 - macOS/Linux 的 TCP Ping 需要 `sudo`（root 權限）以發送 raw packets：`sudo pwsh ./deadman.ps1 ...`
 - Windows 的 TCP Ping 使用內建的 `Test-NetConnection` Cmdlet
+
+### Windows 相容性
+
+| 作業系統 | PowerShell 5.1 | PowerShell 7+ |
+|---------|:-:|:-:|
+| Windows Server 2019 | ✅ | ✅ |
+| Windows Server 2022 | ✅ | ✅ |
+| Windows 10 | ✅ | ✅ |
+| Windows 11 | ✅ | ✅ |
+
+### 終端機與字元顯示
+
+- **Windows Terminal**（建議使用）：完整支援 Unicode 柱狀圖字元（▁▂▃▄▅▆▇█），最佳視覺效果
+- **conhost**（傳統主控台）：自動降級為 ASCII 字元（`_.oO+=@#`）顯示 RTT 柱狀圖
+- 若要在 conhost 中啟用 Unicode，請在執行前執行 `chcp 65001`，或使用 **Cascadia Code** 等字型
 
 ## 快速開始
 
@@ -125,11 +143,15 @@ Invoke-Pester ./tests/ -Output Detailed -ExcludeTag 'Network'
 deadman-pwsh/
 ├── deadman.ps1           # 單檔程式（所有類別、解析器、UI、主迴圈皆包含在內）
 ├── deadman.conf          # 範例設定檔
+├── .github/
+│   └── workflows/
+│       └── ci.yml        # GitHub Actions CI（Windows Server 2019/2022 × PS 5.1/7）
 ├── tests/
 │   ├── PingTarget.Tests.ps1    # PingTarget 單元測試
 │   ├── ConfigParser.Tests.ps1  # ConfigParser 單元測試
 │   ├── ConsoleUI.Tests.ps1     # ConsoleUI 單元測試
-│   └── Integration.Tests.ps1   # 整合測試
+│   ├── Integration.Tests.ps1   # 整合測試
+│   └── WindowsCompat.Tests.ps1 # Windows 相容性測試
 ├── README.md             # 英文文件
 └── readme.zh-tw.md       # 中文（繁體）文件
 ```
@@ -140,10 +162,10 @@ deadman-pwsh/
 
 | 功能 | 原版 (Python) | 此版 (PowerShell) |
 |------|--------------|------------------|
-| 語言 | Python 3 + curses | PowerShell 7+ |
+| 語言 | Python 3 + curses | PowerShell 5.1+ |
 | UI 框架 | curses | System.Console API |
 | Ping 實作 | subprocess (ping 指令) | Test-Connection Cmdlet |
-| 非同步 | asyncio | ThreadJob / ForEach-Object -Parallel |
+| 非同步 | asyncio | ThreadJob (PS7+) / Start-Job (PS5.1) |
 | SSH Relay | ✅ | ❌（設定檔相容，但不使用） |
 | SNMP Ping | ✅ | ❌ |
 | RouterOS API | ✅ | ❌ |

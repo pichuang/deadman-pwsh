@@ -4,7 +4,8 @@
 # Ported from https://github.com/upa/deadman (MIT License)
 #
 # deadman is a host monitoring tool using ICMP Ping and TCP Ping.
-# This version is fully implemented in PowerShell 7+ using the System.Console API for terminal UI.
+# This version is implemented in PowerShell 5.1+ using the System.Console API for terminal UI.
+# Works best with PowerShell 7+ but is fully compatible with Windows PowerShell 5.1.
 #
 # Usage:
 #   ./deadman.ps1
@@ -80,7 +81,7 @@ INTERACTIVE KEYS:
     q    Quit the program
 
 REQUIREMENTS:
-    PowerShell 7.0 or later
+    PowerShell 5.1 or later (PowerShell 7+ recommended for best experience)
     hping3 (macOS/Linux only, for TCP ping, requires sudo)
 "@
     exit 0
@@ -90,10 +91,63 @@ REQUIREMENTS:
 # Validate environment
 # ============================================================
 
-# Ensure PowerShell version >= 7
-if ($PSVersionTable.PSVersion.Major -lt 7) {
-    Write-Error "deadman requires PowerShell 7 or later. Current version: $($PSVersionTable.PSVersion)"
+# Ensure PowerShell version >= 5.1
+if ($PSVersionTable.PSVersion.Major -lt 5 -or
+    ($PSVersionTable.PSVersion.Major -eq 5 -and $PSVersionTable.PSVersion.Minor -lt 1)) {
+    Write-Error "deadman requires PowerShell 5.1 or later. Current version: $($PSVersionTable.PSVersion)"
     exit 1
+}
+
+# ============================================================
+# Cross-version helper functions
+# ============================================================
+
+# Platform detection — PS 6+ has $IsWindows; PS 5.1 runs only on Windows
+function Test-IsWindows {
+    if ($null -ne $global:IsWindows) { return $global:IsWindows }
+    # PowerShell 5.1 (Windows PowerShell) only runs on Windows
+    return $true
+}
+
+# Detect whether the console supports Unicode block elements
+# Returns $true if Windows Terminal, modern console, or non-Windows (most support Unicode)
+function Test-UnicodeSupport {
+    # Non-Windows platforms generally support Unicode
+    if (-not (Test-IsWindows)) { return $true }
+    # Windows Terminal sets WT_SESSION
+    if ($env:WT_SESSION) { return $true }
+    # VS Code integrated terminal
+    if ($env:TERM_PROGRAM -eq 'vscode') { return $true }
+    # Check if OutputEncoding is already UTF-8
+    try {
+        if ([Console]::OutputEncoding.WebName -eq 'utf-8') { return $true }
+    } catch { }
+    return $false
+}
+
+# Script-level flag for ASCII fallback mode
+$script:UseAsciiChars = -not (Test-UnicodeSupport)
+
+# Script-level flag for PowerShell version (class methods cannot access $PSVersionTable)
+$script:PSMajorVersion = $PSVersionTable.PSVersion.Major
+
+# Script-level flag for Windows platform (class methods cannot call script functions reliably)
+$script:IsWindowsPlatform = Test-IsWindows
+
+# Set console output encoding to UTF-8 on Windows for proper Unicode rendering
+if (Test-IsWindows) {
+    try {
+        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+        $OutputEncoding = [System.Text.Encoding]::UTF8
+    } catch { }
+}
+
+# Show hint when falling back to ASCII mode
+if ($script:UseAsciiChars -and $MyInvocation.InvocationName -ne '.') {
+    Write-Host "[Info] Console does not fully support Unicode block characters." -ForegroundColor Yellow
+    Write-Host "[Info] Using ASCII fallback mode for RTT bar chart." -ForegroundColor Yellow
+    Write-Host "[Info] For best display, use Windows Terminal or run 'chcp 65001' first." -ForegroundColor Yellow
+    Write-Host ""
 }
 
 # Get script directory
@@ -179,21 +233,36 @@ class PingTarget {
 
         $result = [PingResult]::new()
         try {
-            $params = @{
-                TargetName     = $this.Address
-                Count          = 1
-                TimeoutSeconds = 1
-                Ping           = $true
-                ErrorAction    = 'Stop'
+            if ($script:PSMajorVersion -ge 7) {
+                # PowerShell 7+: use -TargetName, -TimeoutSeconds, -Ping
+                $params = @{
+                    TargetName     = $this.Address
+                    Count          = 1
+                    TimeoutSeconds = 1
+                    Ping           = $true
+                    ErrorAction    = 'Stop'
+                }
+                $reply = Test-Connection @params
+                if ($reply.Status -eq 'Success') {
+                    $result.Success = $true
+                    $result.ErrorCode = [PingErrorCode]::Success
+                    $result.RTT = [double]$reply.Latency
+                    $result.TTL = if ($null -ne $reply.Reply -and $null -ne $reply.Reply.Options) {
+                        [int]$reply.Reply.Options.Ttl
+                    } else { -1 }
+                }
             }
-            $reply = Test-Connection @params
-            if ($reply.Status -eq 'Success') {
-                $result.Success = $true
-                $result.ErrorCode = [PingErrorCode]::Success
-                $result.RTT = [double]$reply.Latency
-                $result.TTL = if ($null -ne $reply.Reply -and $null -ne $reply.Reply.Options) {
-                    [int]$reply.Reply.Options.Ttl
-                } else { -1 }
+            else {
+                # PowerShell 5.1: use -ComputerName, returns Win32_PingStatus
+                $reply = Test-Connection -ComputerName $this.Address -Count 1 -ErrorAction Stop
+                if ($reply.StatusCode -eq 0) {
+                    $result.Success = $true
+                    $result.ErrorCode = [PingErrorCode]::Success
+                    $result.RTT = [double]$reply.ResponseTime
+                    $result.TTL = if ($null -ne $reply.ResponseTimeToLive) {
+                        [int]$reply.ResponseTimeToLive
+                    } else { -1 }
+                }
             }
         }
         catch {
@@ -210,7 +279,7 @@ class PingTarget {
         $result = [PingResult]::new()
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         try {
-            if ($global:IsWindows -or ($null -eq $global:IsWindows -and [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows))) {
+            if ($script:IsWindowsPlatform) {
                 $tnc = Test-NetConnection -ComputerName $this.Address -Port $this.TcpPort -WarningAction SilentlyContinue -ErrorAction Stop
                 $sw.Stop()
                 if ($tnc.TcpTestSucceeded) {
@@ -265,10 +334,22 @@ class PingTarget {
         $this.ResultHistory.Insert(0, $this.GetResultChar($res))
     }
 
-    # Return Unicode bar chart character based on RTT
+    # Return bar chart character based on RTT
+    # Uses Unicode block elements when supported, ASCII fallback otherwise
     [string] GetResultChar([PingResult]$res) {
         if ($res.ErrorCode -eq [PingErrorCode]::Failed) { return 'X' }
         $scale = $this.RttScale
+        if ($script:UseAsciiChars) {
+            # ASCII fallback for consoles without Unicode support
+            if ($res.RTT -lt ($scale * 1)) { return '_' }
+            if ($res.RTT -lt ($scale * 2)) { return '.' }
+            if ($res.RTT -lt ($scale * 3)) { return 'o' }
+            if ($res.RTT -lt ($scale * 4)) { return 'O' }
+            if ($res.RTT -lt ($scale * 5)) { return '+' }
+            if ($res.RTT -lt ($scale * 6)) { return '=' }
+            if ($res.RTT -lt ($scale * 7)) { return '#' }
+            return '@'
+        }
         if ($res.RTT -lt ($scale * 1)) { return [char]0x2581 }
         if ($res.RTT -lt ($scale * 2)) { return [char]0x2582 }
         if ($res.RTT -lt ($scale * 3)) { return [char]0x2583 }
@@ -608,8 +689,7 @@ if ($targets.Count -eq 0) {
 # Warn if TCP ping targets exist on macOS/Linux (hping3 requires root)
 $hasTcpTargets = $targets | Where-Object { $_ -isnot [Separator] -and $_.TcpPort -gt 0 }
 if ($hasTcpTargets) {
-    $isWin = $global:IsWindows -or ($null -eq $global:IsWindows -and [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows))
-    if (-not $isWin) {
+    if (-not (Test-IsWindows)) {
         $currentUser = & whoami 2>$null
         if ($currentUser -ne 'root') {
             Write-Warning "TCP ping targets detected. hping3 requires root privileges on macOS/Linux. Please run with: sudo pwsh $($MyInvocation.MyCommand.Path) $($MyInvocation.UnboundArguments -join ' ')"
@@ -824,62 +904,86 @@ function Start-AsyncMode {
             $pingIndices += $i
         }
 
-        # Use PowerShell 7 parallel ping via ThreadJob
+        # Parallel ping using Start-ThreadJob (PS 7+) or Start-Job (PS 5.1)
         $jobs = @()
+        $usePsVer7 = $PSVersionTable.PSVersion.Major -ge 7
+        $isWinForJobs = Test-IsWindows
+
+        # Define ScriptBlocks for job-based parallel ping
+        $tcpPingBlock = {
+            param($addr, $port, $isWin, $psVer)
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            try {
+                if ($isWin) {
+                    $tnc = Test-NetConnection -ComputerName $addr -Port $port -WarningAction SilentlyContinue -ErrorAction Stop
+                    $sw.Stop()
+                    if ($tnc.TcpTestSucceeded) {
+                        return @{ Success = $true; RTT = [double]$sw.Elapsed.TotalMilliseconds; TTL = -1 }
+                    }
+                    return @{ Success = $false; RTT = 0; TTL = 0 }
+                }
+                else {
+                    $hpingOutput = & hping3 -S -p $port -c 1 $addr 2>&1
+                    $sw.Stop()
+                    $outputStr = $hpingOutput -join "`n"
+                    if ($outputStr -match 'flags=SA' -or $outputStr -match 'flags=S\.A') {
+                        $rtt = [double]$sw.Elapsed.TotalMilliseconds
+                        $ttl = -1
+                        if ($outputStr -match 'rtt=([\d.]+)\s*ms') { $rtt = [double]$Matches[1] }
+                        if ($outputStr -match 'ttl=(\d+)') { $ttl = [int]$Matches[1] }
+                        return @{ Success = $true; RTT = $rtt; TTL = $ttl }
+                    }
+                    return @{ Success = $false; RTT = 0; TTL = 0 }
+                }
+            }
+            catch {
+                $sw.Stop()
+                return @{ Success = $false; RTT = 0; TTL = 0 }
+            }
+        }
+
+        $icmpPingBlock = {
+            param($addr, $psVer)
+            try {
+                if ($psVer -ge 7) {
+                    $reply = Test-Connection -TargetName $addr -Count 1 -TimeoutSeconds 1 -Ping -ErrorAction Stop
+                    if ($reply.Status -eq 'Success') {
+                        $ttl = -1
+                        if ($null -ne $reply.Reply -and $null -ne $reply.Reply.Options) {
+                            $ttl = [int]$reply.Reply.Options.Ttl
+                        }
+                        return @{ Success = $true; RTT = [double]$reply.Latency; TTL = $ttl }
+                    }
+                }
+                else {
+                    $reply = Test-Connection -ComputerName $addr -Count 1 -ErrorAction Stop
+                    if ($reply.StatusCode -eq 0) {
+                        $ttl = -1
+                        if ($null -ne $reply.ResponseTimeToLive) { $ttl = [int]$reply.ResponseTimeToLive }
+                        return @{ Success = $true; RTT = [double]$reply.ResponseTime; TTL = $ttl }
+                    }
+                }
+                return @{ Success = $false; RTT = 0; TTL = 0 }
+            }
+            catch {
+                return @{ Success = $false; RTT = 0; TTL = 0 }
+            }
+        }
+
         foreach ($t in $pingTargets) {
             if ($t.TcpPort -gt 0) {
-                # TCP ping mode
-                $job = Start-ThreadJob -ScriptBlock {
-                    param($addr, $port, $isWin)
-                    $sw = [System.Diagnostics.Stopwatch]::StartNew()
-                    try {
-                        if ($isWin) {
-                            $tnc = Test-NetConnection -ComputerName $addr -Port $port -WarningAction SilentlyContinue -ErrorAction Stop
-                            $sw.Stop()
-                            if ($tnc.TcpTestSucceeded) {
-                                return @{ Success = $true; RTT = [double]$sw.Elapsed.TotalMilliseconds; TTL = -1 }
-                            }
-                            return @{ Success = $false; RTT = 0; TTL = 0 }
-                        }
-                        else {
-                            $hpingOutput = & hping3 -S -p $port -c 1 $addr 2>&1
-                            $sw.Stop()
-                            $outputStr = $hpingOutput -join "`n"
-                            if ($outputStr -match 'flags=SA' -or $outputStr -match 'flags=S\.A') {
-                                $rtt = [double]$sw.Elapsed.TotalMilliseconds
-                                $ttl = -1
-                                if ($outputStr -match 'rtt=([\d.]+)\s*ms') { $rtt = [double]$Matches[1] }
-                                if ($outputStr -match 'ttl=(\d+)') { $ttl = [int]$Matches[1] }
-                                return @{ Success = $true; RTT = $rtt; TTL = $ttl }
-                            }
-                            return @{ Success = $false; RTT = 0; TTL = 0 }
-                        }
-                    }
-                    catch {
-                        $sw.Stop()
-                        return @{ Success = $false; RTT = 0; TTL = 0 }
-                    }
-                } -ArgumentList $t.Address, $t.TcpPort, ($global:IsWindows -or ($null -eq $global:IsWindows -and [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)))
+                if ($usePsVer7) {
+                    $job = Start-ThreadJob -ScriptBlock $tcpPingBlock -ArgumentList $t.Address, $t.TcpPort, $isWinForJobs, $PSVersionTable.PSVersion.Major
+                } else {
+                    $job = Start-Job -ScriptBlock $tcpPingBlock -ArgumentList $t.Address, $t.TcpPort, $isWinForJobs, $PSVersionTable.PSVersion.Major
+                }
             }
             else {
-                # ICMP ping mode
-                $job = Start-ThreadJob -ScriptBlock {
-                    param($addr)
-                    try {
-                        $reply = Test-Connection -TargetName $addr -Count 1 -TimeoutSeconds 1 -Ping -ErrorAction Stop
-                        if ($reply.Status -eq 'Success') {
-                            $ttl = -1
-                            if ($null -ne $reply.Reply -and $null -ne $reply.Reply.Options) {
-                                $ttl = [int]$reply.Reply.Options.Ttl
-                            }
-                            return @{ Success = $true; RTT = [double]$reply.Latency; TTL = $ttl }
-                        }
-                        return @{ Success = $false; RTT = 0; TTL = 0 }
-                    }
-                    catch {
-                        return @{ Success = $false; RTT = 0; TTL = 0 }
-                    }
-                } -ArgumentList $t.Address
+                if ($usePsVer7) {
+                    $job = Start-ThreadJob -ScriptBlock $icmpPingBlock -ArgumentList $t.Address, $PSVersionTable.PSVersion.Major
+                } else {
+                    $job = Start-Job -ScriptBlock $icmpPingBlock -ArgumentList $t.Address, $PSVersionTable.PSVersion.Major
+                }
             }
             $jobs += @{ Job = $job; Target = $t }
         }

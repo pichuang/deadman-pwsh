@@ -34,7 +34,8 @@ Describe 'ConsoleUI.UpdateLayout' {
             }
             catch {
                 # Non-interactive environments may fail to initialize Console
-                $script:ui = [ConsoleUI]::new(10)
+                Set-ItResult -Skipped -Because 'Non-interactive environment cannot initialize Console'
+                return
             }
         }
 
@@ -101,7 +102,8 @@ Describe 'ConsoleUI.UpdateLayout' {
                 $script:ui = [ConsoleUI]::new(10)
             }
             catch {
-                $script:ui = [ConsoleUI]::new(10)
+                Set-ItResult -Skipped -Because 'Non-interactive environment cannot initialize Console'
+                return
             }
         }
 
@@ -129,7 +131,8 @@ Describe 'ConsoleUI.UpdateLayout' {
                 $script:ui = [ConsoleUI]::new(10)
             }
             catch {
-                $script:ui = [ConsoleUI]::new(10)
+                Set-ItResult -Skipped -Because 'Non-interactive environment cannot initialize Console'
+                return
             }
         }
 
@@ -151,7 +154,8 @@ Describe 'ConsoleUI.GetHostInfo' {
             $script:ui = [ConsoleUI]::new(10)
         }
         catch {
-            $script:ui = [ConsoleUI]::new(10)
+            Set-ItResult -Skipped -Because 'Non-interactive environment cannot initialize Console'
+            return
         }
     }
 
@@ -188,7 +192,8 @@ Describe 'ConsoleUI.WriteLog' {
             $script:ui = [ConsoleUI]::new(10)
         }
         catch {
-            $script:ui = [ConsoleUI]::new(10)
+            Set-ItResult -Skipped -Because 'Non-interactive environment cannot initialize Console'
+            return
         }
         # Create temporary log directory
         $script:tempLogDir = Join-Path ([System.IO.Path]::GetTempPath()) "deadman-log-test-$(New-Guid)"
