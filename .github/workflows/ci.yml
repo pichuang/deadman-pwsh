@@ -63,6 +63,8 @@ jobs:
       - name: Generate test summary
         if: always()
         shell: pwsh
+        env:
+          MATRIX_OS: ${{ matrix.os }}
         run: |
           if (Test-Path './test-results.xml') {
             [xml]$xml = Get-Content './test-results.xml'
@@ -72,8 +74,9 @@ jobs:
             $skipped = [int]$ts.disabled
             $passed  = $total - $failed - $skipped
             $icon = if ($failed -eq 0) { ':white_check_mark:' } else { ':x:' }
+            $osName = $env:MATRIX_OS
 
-            $summary = "## $icon Test Results — ${{ matrix.os }} / PowerShell 7`n`n"
+            $summary = "## $icon Test Results — $osName / PowerShell 7`n`n"
             $summary += "| Metric | Count |`n|--------|-------|`n"
             $summary += "| **Total** | $total |`n| **Passed** | $passed |`n"
             $summary += "| **Failed** | $failed |`n| **Skipped** | $skipped |`n"
@@ -182,6 +185,8 @@ jobs:
       - name: Generate test summary
         if: always()
         shell: powershell
+        env:
+          MATRIX_OS: ${{ matrix.os }}
         run: |
           if (Test-Path './test-results.xml') {
             [xml]$xml = Get-Content './test-results.xml'
@@ -191,8 +196,9 @@ jobs:
             $skipped = [int]$ts.disabled
             $passed  = $total - $failed - $skipped
             if ($failed -eq 0) { $icon = ':white_check_mark:' } else { $icon = ':x:' }
+            $osName = $env:MATRIX_OS
 
-            $summary = "## $icon Test Results — ${{ matrix.os }} / Windows PowerShell 5.1`n`n"
+            $summary = "## $icon Test Results — $osName / Windows PowerShell 5.1`n`n"
             $summary += "| Metric | Count |`n|--------|-------|`n"
             $summary += "| **Total** | $total |`n| **Passed** | $passed |`n"
             $summary += "| **Failed** | $failed |`n| **Skipped** | $skipped |`n"
