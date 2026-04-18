@@ -12,20 +12,14 @@ permissions:
   pull-requests: write
 
 jobs:
-  test:
+  test-pwsh:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-2019, windows-2022]
-        shell: [pwsh, powershell]
-        include:
-          - shell: pwsh
-            shell-name: 'PowerShell 7'
-          - shell: powershell
-            shell-name: 'Windows PowerShell 5.1'
+        os: [windows-2022, windows-2025]
 
     runs-on: ${{ matrix.os }}
-    name: "${{ matrix.os }} / ${{ matrix.shell-name }}"
+    name: "${{ matrix.os }} / PowerShell 7"
 
     steps:
       - name: Checkout repository
@@ -36,7 +30,7 @@ jobs:
         run: chcp 65001
 
       - name: Install Pester 5
-        shell: ${{ matrix.shell }}
+        shell: pwsh
         run: |
           Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
           Install-Module -Name Pester -MinimumVersion 5.0 -Force -Scope CurrentUser -SkipPublisherCheck
@@ -44,8 +38,7 @@ jobs:
           Write-Host "Pester version: $((Get-Module Pester).Version)"
           Write-Host "PowerShell version: $($PSVersionTable.PSVersion)"
 
-      - name: Install ThreadJob module (PowerShell 7 only)
-        if: matrix.shell == 'pwsh'
+      - name: Install ThreadJob module
         shell: pwsh
         run: |
           if (-not (Get-Module -Name ThreadJob -ListAvailable -ErrorAction SilentlyContinue)) {
@@ -54,7 +47,7 @@ jobs:
 
       - name: Run Pester tests
         id: pester
-        shell: ${{ matrix.shell }}
+        shell: pwsh
         run: |
           $config = New-PesterConfiguration
           $config.Run.Path = './tests/'
@@ -69,7 +62,7 @@ jobs:
 
       - name: Generate test summary
         if: always()
-        shell: ${{ matrix.shell }}
+        shell: pwsh
         run: |
           if (Test-Path './test-results.xml') {
             [xml]$xml = Get-Content './test-results.xml'
@@ -78,48 +71,122 @@ jobs:
             $passed  = [int]$r.total - [int]$r.failures - [int]$r.errors - [int]$r.skipped
             $failed  = [int]$r.failures + [int]$r.errors
             $skipped = [int]$r.skipped
-
             $icon = if ($failed -eq 0) { ':white_check_mark:' } else { ':x:' }
-
-            $summary = @"
-          ## $icon Test Results — ${{ matrix.os }} / ${{ matrix.shell-name }}
-
-          | Metric | Count |
-          |--------|-------|
-          | **Total** | $total |
-          | **Passed** | $passed |
-          | **Failed** | $failed |
-          | **Skipped** | $skipped |
-          "@
-
+            $summary = "## $icon Test Results - ${{ matrix.os }} / PowerShell 7`n`n"
+            $summary += "| Metric | Count |`n|--------|-------|`n"
+            $summary += "| **Total** | $total |`n| **Passed** | $passed |`n"
+            $summary += "| **Failed** | $failed |`n| **Skipped** | $skipped |`n"
             if ($failed -gt 0) {
-              $summary += "`n`n### Failed Tests`n"
+              $summary += "`n### Failed Tests`n"
               $cases = $xml.SelectNodes('//test-case[@success="False"]')
               foreach ($tc in $cases) {
-                $name = $tc.name
-                $msg  = if ($tc.failure) { $tc.failure.message } else { 'N/A' }
-                $summary += "`n- **$name**`n  > $msg`n"
+                $summary += "`n- **$($tc.name)**`n  > $($tc.failure.message)`n"
               }
             }
-
             $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
           }
           else {
-            "## :warning: No test results found for ${{ matrix.os }} / ${{ matrix.shell-name }}" |
-              Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+            "## :warning: No test results found" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
           }
 
       - name: Upload test results artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results-${{ matrix.os }}-${{ matrix.shell }}
+          name: test-results-${{ matrix.os }}-pwsh
           path: ./test-results.xml
 
       - name: Publish test report
-        if: always() && hashFiles('./test-results.xml') != ''
+        if: always()
         uses: dorny/test-reporter@v1
         with:
-          name: "Tests (${{ matrix.os }} / ${{ matrix.shell-name }})"
+          name: "Tests (${{ matrix.os }} / PowerShell 7)"
           path: './test-results.xml'
           reporter: dotnet-nunit
+          fail-on-empty: 'false'
+
+  test-powershell:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+
+    runs-on: ${{ matrix.os }}
+    name: "${{ matrix.os }} / Windows PowerShell 5.1"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set console to UTF-8
+        shell: cmd
+        run: chcp 65001
+
+      - name: Install Pester 5
+        shell: powershell
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module -Name Pester -MinimumVersion 5.0 -Force -Scope CurrentUser -SkipPublisherCheck
+          Import-Module Pester
+          Write-Host "Pester version: $((Get-Module Pester).Version)"
+          Write-Host "PowerShell version: $($PSVersionTable.PSVersion)"
+
+      - name: Run Pester tests
+        id: pester
+        shell: powershell
+        run: |
+          $config = New-PesterConfiguration
+          $config.Run.Path = './tests/'
+          $config.Run.Exit = $true
+          $config.Output.Verbosity = 'Detailed'
+          $config.TestResult.Enabled = $true
+          $config.TestResult.OutputFormat = 'NUnitXml'
+          $config.TestResult.OutputPath = './test-results.xml'
+          $config.Filter.ExcludeTag = @('Network')
+
+          Invoke-Pester -Configuration $config
+
+      - name: Generate test summary
+        if: always()
+        shell: powershell
+        run: |
+          if (Test-Path './test-results.xml') {
+            [xml]$xml = Get-Content './test-results.xml'
+            $r = $xml.'test-results'
+            $total   = [int]$r.total
+            $passed  = [int]$r.total - [int]$r.failures - [int]$r.errors - [int]$r.skipped
+            $failed  = [int]$r.failures + [int]$r.errors
+            $skipped = [int]$r.skipped
+            if ($failed -eq 0) { $icon = ':white_check_mark:' } else { $icon = ':x:' }
+            $summary = "## $icon Test Results - ${{ matrix.os }} / Windows PowerShell 5.1`n`n"
+            $summary += "| Metric | Count |`n|--------|-------|`n"
+            $summary += "| **Total** | $total |`n| **Passed** | $passed |`n"
+            $summary += "| **Failed** | $failed |`n| **Skipped** | $skipped |`n"
+            if ($failed -gt 0) {
+              $summary += "`n### Failed Tests`n"
+              $cases = $xml.SelectNodes('//test-case[@success="False"]')
+              foreach ($tc in $cases) {
+                $summary += "`n- **$($tc.name)**`n  > $($tc.failure.message)`n"
+              }
+            }
+            $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          }
+          else {
+            "## :warning: No test results found" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          }
+
+      - name: Upload test results artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.os }}-powershell
+          path: ./test-results.xml
+
+      - name: Publish test report
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: "Tests (${{ matrix.os }} / Windows PowerShell 5.1)"
+          path: './test-results.xml'
+          reporter: dotnet-nunit
+          fail-on-empty: 'false'
