@@ -187,27 +187,31 @@ Describe 'ConsoleUI.GetHostInfo' {
 
 Describe 'ConsoleUI.WriteLog' {
 
-    BeforeEach {
+    BeforeAll {
+        $script:canCreateConsole = $true
         try {
-            $script:ui = [ConsoleUI]::new(10)
+            $null = [ConsoleUI]::new(10)
         }
         catch {
-            Set-ItResult -Skipped -Because 'Non-interactive environment cannot initialize Console'
-            return
+            $script:canCreateConsole = $false
         }
-        # Create temporary log directory
+    }
+
+    BeforeEach {
+        if (-not $script:canCreateConsole) { return }
+        $script:ui = [ConsoleUI]::new(10)
         $script:tempLogDir = Join-Path ([System.IO.Path]::GetTempPath()) "deadman-log-test-$(New-Guid)"
     }
 
     AfterEach {
-        # Clean up temporary log directory
-        if (Test-Path $script:tempLogDir) {
+        if ($script:tempLogDir -and (Test-Path $script:tempLogDir)) {
             Remove-Item -Path $script:tempLogDir -Recurse -Force -ErrorAction SilentlyContinue
         }
+        $script:tempLogDir = $null
     }
 
     It 'Should create log directory and file' {
-        if ($null -eq $script:ui) {
+        if (-not $script:canCreateConsole) {
             Set-ItResult -Skipped -Because 'Non-interactive environment cannot initialize Console'
             return
         }
@@ -223,7 +227,7 @@ Describe 'ConsoleUI.WriteLog' {
     }
 
     It 'Log content should contain timestamp and statistics' {
-        if ($null -eq $script:ui) {
+        if (-not $script:canCreateConsole) {
             Set-ItResult -Skipped -Because 'Non-interactive environment cannot initialize Console'
             return
         }
@@ -243,7 +247,7 @@ Describe 'ConsoleUI.WriteLog' {
     }
 
     It 'Should not write any file when log directory path is empty' {
-        if ($null -eq $script:ui) {
+        if (-not $script:canCreateConsole) {
             Set-ItResult -Skipped -Because 'Non-interactive environment cannot initialize Console'
             return
         }

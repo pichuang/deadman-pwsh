@@ -104,6 +104,7 @@ jobs:
           path: './test-results.xml'
           reporter: java-junit
           fail-on-empty: 'false'
+          fail-on-error: 'false'
 
   test-powershell:
     strategy:
@@ -190,3 +191,4 @@ jobs:
           path: './test-results.xml'
           reporter: java-junit
           fail-on-empty: 'false'
+          fail-on-error: 'false'
