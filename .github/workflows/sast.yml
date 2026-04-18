@@ -1,0 +1,97 @@
+name: SAST
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '0 6 * * 3'
+
+permissions:
+  contents: read
+
+jobs:
+  codeql:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4
+        with:
+          languages: actions
+          queries: security-extended
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4
+        with:
+          category: "/language:actions"
+
+  psscriptanalyzer:
+    name: PSScriptAnalyzer
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
+          $results = @(Invoke-ScriptAnalyzer -Path . -Recurse -Settings @{
+            Severity = @('Error', 'Warning')
+            ExcludeRules = @(
+              'PSAvoidUsingWriteHost'
+            )
+          })
+          if ($results.Count -gt 0) {
+            $results | Format-Table RuleName, Severity, ScriptName, Line, Message -AutoSize
+          }
+          Write-Host "PSScriptAnalyzer found $($results.Count) issue(s)"
+
+          # Build SARIF JSON manually
+          $sarifResults = @()
+          foreach ($r in $results) {
+            $level = switch ($r.Severity.ToString()) {
+              'Error'       { 'error' }
+              'Warning'     { 'warning' }
+              default       { 'note' }
+            }
+            $sarifResults += @{
+              ruleId  = $r.RuleName
+              level   = $level
+              message = @{ text = $r.Message }
+              locations = @(@{
+                physicalLocation = @{
+                  artifactLocation = @{ uri = ($r.ScriptPath -replace '\\','/') -replace '^.*/deadman-pwsh/', '' }
+                  region = @{ startLine = [Math]::Max(1, [int]$r.Line); startColumn = [Math]::Max(1, [int]$r.Column) }
+                }
+              })
+            }
+          }
+          $sarif = @{
+            '$schema' = 'https://json.schemastore.org/sarif-2.1.0.json'
+            version   = '2.1.0'
+            runs      = @(@{
+              tool = @{ driver = @{ name = 'PSScriptAnalyzer'; version = (Get-Module PSScriptAnalyzer).Version.ToString() } }
+              results = $sarifResults
+            })
+          }
+          $sarif | ConvertTo-Json -Depth 10 | Set-Content -Path results.sarif -Encoding UTF8
+
+      - name: Upload SARIF results
+        if: always()
+        uses: github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4
+        with:
+          sarif_file: results.sarif
+          category: psscriptanalyzer

@@ -434,7 +434,14 @@ function Read-DeadmanConfig {
                 switch ($key) {
                     'source' { $source = $value }
                     'via'    { $via = $value }
-                    'port'   { $port = [int]$value }
+                    'port'   {
+                        $parsed = 0
+                        if ([int]::TryParse($value, [ref]$parsed) -and $parsed -gt 0 -and $parsed -le 65535) {
+                            $port = $parsed
+                        } else {
+                            Write-Warning "Invalid port value '$value' for '$name', ignoring"
+                        }
+                    }
                     default  { <# Ignore unsupported options #> }
                 }
             }
