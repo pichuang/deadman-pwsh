@@ -75,9 +75,24 @@ jobs:
           name: release-artifacts
 
       - name: Attest build provenance
+        id: attest
         uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
         with:
           subject-path: "*.zip"
+
+      - name: Rename provenance bundle for release
+        run: |
+          BUNDLE="${{ steps.attest.outputs.bundle-path }}"
+          ARCHIVE=$(ls *.zip | head -1)
+          cp "${BUNDLE}" "${ARCHIVE}.sigstore.json"
+          echo "Provenance bundle: ${ARCHIVE}.sigstore.json"
+
+      - name: Upload provenance artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: provenance-artifacts
+          path: "*.sigstore.json"
+          retention-days: 5
 
   release:
     name: Publish GitHub Release
@@ -91,10 +106,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Download artifacts
+      - name: Download build artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: release-artifacts
+
+      - name: Download provenance artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: provenance-artifacts
 
       - name: Generate release notes
         id: notes
@@ -132,5 +152,6 @@ jobs:
           files: |
             deadman-pwsh-*.zip
             checksums-sha256.txt
+            *.sigstore.json
           fail_on_unmatched_files: true
           make_latest: true
