@@ -45,7 +45,7 @@ This version is implemented in **PowerShell 5.1+** (recommended: PowerShell 7+),
 ### Terminal & Character Display
 
 - **Windows Terminal** (recommended): Full Unicode bar chart support (▁▂▃▄▅▆▇█), best visual experience
-- **conhost** (legacy console): Automatically falls back to ASCII characters (`_.oO+=@#`) for RTT bar chart
+- **conhost** (legacy console): Automatically falls back to ASCII characters (`_.:‐+=@#`) for RTT bar chart
 - To enable Unicode in conhost, run `chcp 65001` before executing the script, or use a font like **Cascadia Code**
 
 ## Quick Start
@@ -142,22 +142,78 @@ Invoke-Pester ./tests/ -Output Detailed -ExcludeTag 'Network'
 
 ```
 deadman-pwsh/
-├── deadman.ps1           # Single-file program (all classes, parser, UI, and main loop)
-├── deadman.conf          # Example configuration file
+├── deadman.ps1                  # Single-file program (all classes, parser, UI, and main loop)
+├── deadman.conf                 # Example configuration file
+├── LICENSE                      # MIT License
+├── SECURITY.md                  # Security policy and vulnerability reporting
+├── README.md                    # English documentation
+├── README.zh-tw.md              # Chinese (Traditional) documentation
 ├── .github/
+│   ├── CODEOWNERS               # Auto-assign reviewers
+│   ├── dependabot.yml           # Automated dependency updates
+│   ├── pull_request_template.md # PR checklist template
 │   └── workflows/
-│       └── ci.yml        # GitHub Actions CI (Windows Server 2019/2022 × PS 5.1/7)
-├── tests/
-│   ├── PingTarget.Tests.ps1    # PingTarget unit tests
-│   ├── ConfigParser.Tests.ps1  # ConfigParser unit tests
-│   ├── ConsoleUI.Tests.ps1     # ConsoleUI unit tests
-│   ├── Integration.Tests.ps1   # Integration tests
-│   └── WindowsCompat.Tests.ps1 # Windows compatibility tests
-├── README.md             # English documentation
-└── readme.zh-tw.md       # Chinese (Traditional) documentation
+│       ├── ci.yml               # CI tests (Windows Server 2022/2025 × PS 5.1/7)
+│       ├── sast.yml             # SAST (CodeQL + PSScriptAnalyzer)
+│       ├── fuzzing.yml          # Fuzz testing (property-based)
+│       ├── scorecard.yml        # OpenSSF Scorecard analysis
+│       ├── release.yml          # Release with SLSA provenance
+│       └── pr-assign.yml        # Auto-assign PR assignee/reviewer
+└── tests/
+    ├── ConfigParser.Tests.ps1   # Config parser unit tests
+    ├── ConsoleUI.Tests.ps1      # Console UI unit tests
+    ├── PingTarget.Tests.ps1     # PingTarget unit tests
+    ├── Integration.Tests.ps1    # Integration tests
+    ├── WindowsCompat.Tests.ps1  # Windows compatibility tests
+    └── Fuzz.Tests.ps1           # Fuzz / property-based tests
 ```
 
 > **Note**: `deadman.ps1` is fully self-contained — just download this single file and `deadman.conf` to get started.
+
+## CI/CD & Security
+
+| Workflow | Purpose | Schedule |
+|----------|---------|----------|
+| **CI** | Pester tests on Windows Server 2022/2025 × PS 5.1/7 (4 matrix) | Push/PR |
+| **SAST** | CodeQL (Actions security) + PSScriptAnalyzer (SARIF → Code Scanning) | Push/PR + Weekly |
+| **Fuzzing** | 20 property-based fuzz tests (injection, Unicode, edge cases) | Push/PR + Weekly |
+| **Scorecard** | OpenSSF Scorecard analysis → scorecard.dev | Push + Weekly |
+| **Release** | Build zip + SHA-256 + SLSA provenance (Sigstore) | Tag push (`yyyymmdd`) |
+| **PR Auto-Assign** | Auto-assign assignee + CODEOWNERS reviewer | PR open/reopen |
+
+### Branch Protection (main)
+
+- Require 1 PR review approval (CODEOWNERS enforced)
+- Require 4 CI status checks to pass
+- Dismiss stale reviews on new commits
+- No force push / branch deletion
+- Conversation resolution required
+
+### Releasing
+
+Create a date-based tag to trigger a release:
+
+```bash
+git tag -a 20260419 -m "Release 20260419"
+git push origin 20260419
+```
+
+The release workflow will:
+1. Build a zip archive (`deadman-pwsh-20260419.zip`)
+2. Generate SHA-256 checksums
+3. Create SLSA provenance attestation (`.sigstore.json`)
+4. Publish to GitHub Releases
+
+Verify a release:
+
+```bash
+sha256sum -c checksums-sha256.txt
+gh attestation verify deadman-pwsh-20260419.zip -o pichuang
+```
+
+### Security
+
+See [SECURITY.md](SECURITY.md) for vulnerability reporting policy.
 
 ## Differences from Original
 
