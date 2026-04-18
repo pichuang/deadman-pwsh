@@ -48,17 +48,46 @@ jobs:
         run: |
           Set-PSRepository PSGallery -InstallationPolicy Trusted
           Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
-          $results = Invoke-ScriptAnalyzer -Path . -Recurse -Settings @{
+          $results = @(Invoke-ScriptAnalyzer -Path . -Recurse -Settings @{
             Severity = @('Error', 'Warning')
             ExcludeRules = @(
               'PSAvoidUsingWriteHost'
             )
+          })
+          if ($results.Count -gt 0) {
+            $results | Format-Table RuleName, Severity, ScriptName, Line, Message -AutoSize
           }
-          $results | Format-Table -AutoSize
-          # Convert to SARIF for GitHub Code Scanning
-          Install-Module ConvertToSARIF -Force -Scope CurrentUser
-          $results | ConvertTo-SARIF -FilePath results.sarif
           Write-Host "PSScriptAnalyzer found $($results.Count) issue(s)"
+
+          # Build SARIF JSON manually
+          $sarifResults = @()
+          foreach ($r in $results) {
+            $level = switch ($r.Severity.ToString()) {
+              'Error'       { 'error' }
+              'Warning'     { 'warning' }
+              default       { 'note' }
+            }
+            $sarifResults += @{
+              ruleId  = $r.RuleName
+              level   = $level
+              message = @{ text = $r.Message }
+              locations = @(@{
+                physicalLocation = @{
+                  artifactLocation = @{ uri = ($r.ScriptPath -replace '\\','/') -replace '^.*/deadman-pwsh/', '' }
+                  region = @{ startLine = [int]$r.Line; startColumn = [int]$r.Column }
+                }
+              })
+            }
+          }
+          $sarif = @{
+            '$schema' = 'https://json.schemastore.org/sarif-2.1.0.json'
+            version   = '2.1.0'
+            runs      = @(@{
+              tool = @{ driver = @{ name = 'PSScriptAnalyzer'; version = (Get-Module PSScriptAnalyzer).Version.ToString() } }
+              results = $sarifResults
+            })
+          }
+          $sarif | ConvertTo-Json -Depth 10 | Set-Content -Path results.sarif -Encoding UTF8
 
       - name: Upload SARIF results
         if: always()
