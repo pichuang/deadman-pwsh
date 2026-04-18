@@ -74,7 +74,7 @@ jobs:
               locations = @(@{
                 physicalLocation = @{
                   artifactLocation = @{ uri = ($r.ScriptPath -replace '\\','/') -replace '^.*/deadman-pwsh/', '' }
-                  region = @{ startLine = [int]$r.Line; startColumn = [int]$r.Column }
+                  region = @{ startLine = [Math]::Max(1, [int]$r.Line); startColumn = [Math]::Max(1, [int]$r.Column) }
                 }
               })
             }
