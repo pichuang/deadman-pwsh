@@ -1,0 +1,46 @@
+name: PR Auto-Assign
+
+on:
+  pull_request:
+    types: [opened, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  assign:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add assignee and request CODEOWNERS review
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const prAuthor = pr.user.login;
+
+            // Set assignee to pichuang
+            await github.rest.issues.addAssignees({
+              owner,
+              repo,
+              issue_number: pr.number,
+              assignees: ['pichuang']
+            });
+            core.info(`Assigned pichuang to PR #${pr.number}`);
+
+            // Request review from CODEOWNERS (skip if author is the same)
+            const codeowners = ['pichuang'];
+            const reviewers = codeowners.filter(r => r !== prAuthor);
+            if (reviewers.length > 0) {
+              await github.rest.pulls.requestReviewers({
+                owner,
+                repo,
+                pull_number: pr.number,
+                reviewers
+              });
+              core.info(`Requested review from: ${reviewers.join(', ')}`);
+            } else {
+              core.info(`Skipped review request: PR author (${prAuthor}) is the only CODEOWNER`);
+            }
