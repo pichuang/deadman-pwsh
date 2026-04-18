@@ -76,7 +76,7 @@ jobs:
             $icon = if ($failed -eq 0) { ':white_check_mark:' } else { ':x:' }
             $osName = $env:MATRIX_OS
 
-            $summary = "## $icon Test Results — $osName / PowerShell 7`n`n"
+            $summary = "## $icon Test Results - $osName / PowerShell 7`n`n"
             $summary += "| Metric | Count |`n|--------|-------|`n"
             $summary += "| **Total** | $total |`n| **Passed** | $passed |`n"
             $summary += "| **Failed** | $failed |`n| **Skipped** | $skipped |`n"
@@ -94,7 +94,7 @@ jobs:
               $cases = $xml.SelectNodes('//testcase[skipped]')
               foreach ($tc in $cases) {
                 $reason = if ($tc.skipped.message) { $tc.skipped.message } else { 'No reason given' }
-                $summary += "- **$($tc.name)** — _${reason}_`n"
+                $summary += "- **$($tc.name)** - _${reason}_`n"
               }
               $summary += "`n</details>`n"
             }
@@ -198,7 +198,7 @@ jobs:
             if ($failed -eq 0) { $icon = ':white_check_mark:' } else { $icon = ':x:' }
             $osName = $env:MATRIX_OS
 
-            $summary = "## $icon Test Results — $osName / Windows PowerShell 5.1`n`n"
+            $summary = "## $icon Test Results - $osName / Windows PowerShell 5.1`n`n"
             $summary += "| Metric | Count |`n|--------|-------|`n"
             $summary += "| **Total** | $total |`n| **Passed** | $passed |`n"
             $summary += "| **Failed** | $failed |`n| **Skipped** | $skipped |`n"
@@ -216,7 +216,7 @@ jobs:
               $cases = $xml.SelectNodes('//testcase[skipped]')
               foreach ($tc in $cases) {
                 if ($tc.skipped.message) { $reason = $tc.skipped.message } else { $reason = 'No reason given' }
-                $summary += "- **$($tc.name)** — _${reason}_`n"
+                $summary += "- **$($tc.name)** - _${reason}_`n"
               }
               $summary += "`n</details>`n"
             }
