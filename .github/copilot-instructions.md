@@ -106,7 +106,8 @@ Two separate jobs (not matrix with `shell:`) because GitHub Actions `shell:` doe
   git fetch origin
   git merge origin/main
   ```
-- After committing on local `develop`, push to `origin/develop` and create a PR targeting `main`
+- After committing on local `develop`, push to `origin/develop`
+- **After every successful push to `origin/develop`**, Copilot agents must automatically create a PR targeting `main` (if no open PR from `develop` → `main` already exists)
 - The PR must pass all CI checks and receive at least one approval before merging to `main`
 - Copilot agents must verify the current branch is `develop` (not `main`) before making any code changes
 

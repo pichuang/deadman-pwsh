@@ -45,15 +45,6 @@ jobs:
               core.info(`Skipped review request: PR author (${prAuthor}) is the only CODEOWNER`);
             }
 
-            // Request Copilot code review (added as a team reviewer)
-            try {
-              await github.rest.pulls.requestReviewers({
-                owner,
-                repo,
-                pull_number: pr.number,
-                team_reviewers: ['copilot-pullrequest-reviewer']
-              });
-              core.info(`Requested Copilot code review for PR #${pr.number}`);
-            } catch (err) {
-              core.warning(`Failed to request Copilot review: ${err.message}`);
-            }
+            // Note: Copilot code review is configured via repo Settings > Copilot > Code review > Automatic.
+            // The team_reviewers API (copilot-pullrequest-reviewer) only works for organization repos,
+            // not personal repos. Automatic review in settings is the correct approach.
