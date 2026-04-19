@@ -290,6 +290,8 @@ class PingTarget {
     # Execute a TCP ping (SYN/connect check) using TcpClient.ConnectAsync.
     # Cross-platform: works on Windows / macOS / Linux without hping3 or sudo.
     # RTT measures only the TCP handshake — DNS resolution is done up-front.
+    # Uses single-IPAddress overload to avoid ConnectAsync(IPAddress[], port)
+    # sequentially trying unreachable address families (e.g. IPv6 timeout + IPv4).
     [void] SendTcp() {
         $result = [PingResult]::new()
         $addrs = $this.ResolveAddresses()
@@ -299,11 +301,22 @@ class PingTarget {
             return
         }
 
-        $client = [System.Net.Sockets.TcpClient]::new()
+        # Prefer IPv4 to avoid long timeouts when IPv6 is unreachable.
+        # Falls back to first available address if no IPv4 found.
+        $target = $null
+        foreach ($a in $addrs) {
+            if ($a.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork) {
+                $target = $a
+                break
+            }
+        }
+        if ($null -eq $target) { $target = $addrs[0] }
+
+        $client = [System.Net.Sockets.TcpClient]::new($target.AddressFamily)
         $sw = [System.Diagnostics.Stopwatch]::new()
         try {
             $sw.Start()
-            $task = $client.ConnectAsync($addrs, $this.TcpPort)
+            $task = $client.ConnectAsync($target, $this.TcpPort)
             if ($task.Wait([PingTarget]::PingTimeoutMs) -and $client.Connected) {
                 $sw.Stop()
                 $result.Success = $true
@@ -907,11 +920,19 @@ function Start-AsyncMode {
                     $t.Sent++; $t.ConsumeResult([PingResult]::new())
                     continue
                 }
-                $client = [System.Net.Sockets.TcpClient]::new()
+                # Prefer IPv4 to avoid long timeouts when IPv6 is unreachable
+                $tcpTarget = $null
+                foreach ($a in $addrs) {
+                    if ($a.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork) {
+                        $tcpTarget = $a; break
+                    }
+                }
+                if ($null -eq $tcpTarget) { $tcpTarget = $addrs[0] }
+                $client = [System.Net.Sockets.TcpClient]::new($tcpTarget.AddressFamily)
                 $sw = [System.Diagnostics.Stopwatch]::new()
                 try {
                     $sw.Start()
-                    $task = $client.ConnectAsync($addrs, $t.TcpPort)
+                    $task = $client.ConnectAsync($tcpTarget, $t.TcpPort)
                     $entries.Add([pscustomobject]@{
                         Target = $t; Type = 'Tcp'; Task = $task
                         Client = $client; Stopwatch = $sw
@@ -940,15 +961,32 @@ function Start-AsyncMode {
             }
         }
 
-        # Wait for all pings to finish (or hit the timeout). WaitAll on an
-        # array of Task objects works on both .NET Framework 4.x and modern .NET.
-        if ($tasks.Count -gt 0) {
+        # Separate TCP and ICMP tasks so that slow ICMP timeouts (e.g. IPv6
+        # unreachable ~1000ms) do not inflate TCP stopwatch readings.
+        $tcpTasks = [System.Collections.Generic.List[System.Threading.Tasks.Task]]::new()
+        $icmpTasks = [System.Collections.Generic.List[System.Threading.Tasks.Task]]::new()
+        foreach ($e in $entries) {
+            if ($e.Type -eq 'Tcp') { $tcpTasks.Add($e.Task) }
+            else { $icmpTasks.Add($e.Task) }
+        }
+
+        # Wait for TCP tasks first, then immediately freeze their stopwatches
+        if ($tcpTasks.Count -gt 0) {
             try {
-                [System.Threading.Tasks.Task]::WaitAll($tasks.ToArray(), $waitAllTimeoutMs)
+                [void][System.Threading.Tasks.Task]::WaitAll($tcpTasks.ToArray(), $waitAllTimeoutMs)
             }
-            catch {
-                # Individual task exceptions are inspected below; ignore aggregate
+            catch { }
+        }
+        foreach ($e in $entries) {
+            if ($e.Type -eq 'Tcp') { $e.Stopwatch.Stop() }
+        }
+
+        # Now wait for ICMP tasks (may include long timeouts for unreachable hosts)
+        if ($icmpTasks.Count -gt 0) {
+            try {
+                [void][System.Threading.Tasks.Task]::WaitAll($icmpTasks.ToArray(), $waitAllTimeoutMs)
             }
+            catch { }
         }
 
         # Collect results and update each target's statistics
@@ -969,7 +1007,6 @@ function Start-AsyncMode {
                     $e.Ping.Dispose()
                 }
                 else {
-                    $e.Stopwatch.Stop()
                     if ($e.Task.IsCompleted -and -not $e.Task.IsFaulted -and
                         -not $e.Task.IsCanceled -and $e.Client.Connected) {
                         $r.Success = $true

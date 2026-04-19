@@ -298,8 +298,8 @@ Describe 'PingTarget class' {
             $target.Sent | Should -Be 1
         }
 
-        It 'Should update state to alive on ping success' {
-            # 127.0.0.1 loopback is always reachable on every supported OS
+        It 'Should update state to alive on ping success' -Tag 'Network' {
+            # 127.0.0.1 loopback — requires ICMP privilege (root/admin on macOS)
             $target = [PingTarget]::new('test', '127.0.0.1')
             $target.Send()
 
