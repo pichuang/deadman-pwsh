@@ -217,6 +217,9 @@ class PingTarget {
     [System.Collections.Generic.List[string]]$ResultHistory
     [int]$RttScale = 10
 
+    # Cached resolved IP addresses for TCP probes (avoids counting DNS time as RTT)
+    hidden [System.Net.IPAddress[]]$ResolvedAddresses = $null
+
     PingTarget([string]$name, [string]$address) {
         $this.Name = $name
         $this.Address = $address
@@ -262,14 +265,45 @@ class PingTarget {
         $this.ConsumeResult($result)
     }
 
+    # Resolve target address to IPAddress[] once and cache it.
+    # Separating DNS from the connect timing avoids counting resolution
+    # latency as RTT (which can be hundreds of ms for remote hostnames).
+    hidden [System.Net.IPAddress[]] ResolveAddresses() {
+        if ($null -ne $this.ResolvedAddresses -and $this.ResolvedAddresses.Length -gt 0) {
+            return $this.ResolvedAddresses
+        }
+        try {
+            $parsed = $null
+            if ([System.Net.IPAddress]::TryParse($this.Address, [ref]$parsed)) {
+                $this.ResolvedAddresses = @($parsed)
+            }
+            else {
+                $this.ResolvedAddresses = [System.Net.Dns]::GetHostAddresses($this.Address)
+            }
+        }
+        catch {
+            $this.ResolvedAddresses = $null
+        }
+        return $this.ResolvedAddresses
+    }
+
     # Execute a TCP ping (SYN/connect check) using TcpClient.ConnectAsync.
     # Cross-platform: works on Windows / macOS / Linux without hping3 or sudo.
+    # RTT measures only the TCP handshake — DNS resolution is done up-front.
     [void] SendTcp() {
         $result = [PingResult]::new()
+        $addrs = $this.ResolveAddresses()
+        if ($null -eq $addrs -or $addrs.Length -eq 0) {
+            $this.Sent++
+            $this.ConsumeResult($result)
+            return
+        }
+
         $client = [System.Net.Sockets.TcpClient]::new()
-        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        $sw = [System.Diagnostics.Stopwatch]::new()
         try {
-            $task = $client.ConnectAsync($this.Address, $this.TcpPort)
+            $sw.Start()
+            $task = $client.ConnectAsync($addrs, $this.TcpPort)
             if ($task.Wait([PingTarget]::PingTimeoutMs) -and $client.Connected) {
                 $sw.Stop()
                 $result.Success = $true
@@ -279,7 +313,7 @@ class PingTarget {
             }
         }
         catch {
-            # Connection refused / timeout / DNS failure — leave result as Failed
+            # Connection refused / timeout — leave result as Failed
         }
         finally {
             $sw.Stop()
@@ -867,10 +901,17 @@ function Start-AsyncMode {
             if ($t -is [Separator]) { continue }
 
             if ($t.TcpPort -gt 0) {
+                # Resolve DNS up-front (cached) so RTT reflects pure TCP handshake
+                $addrs = $t.ResolveAddresses()
+                if ($null -eq $addrs -or $addrs.Length -eq 0) {
+                    $t.Sent++; $t.ConsumeResult([PingResult]::new())
+                    continue
+                }
                 $client = [System.Net.Sockets.TcpClient]::new()
-                $sw = [System.Diagnostics.Stopwatch]::StartNew()
+                $sw = [System.Diagnostics.Stopwatch]::new()
                 try {
-                    $task = $client.ConnectAsync($t.Address, $t.TcpPort)
+                    $sw.Start()
+                    $task = $client.ConnectAsync($addrs, $t.TcpPort)
                     $entries.Add([pscustomobject]@{
                         Target = $t; Type = 'Tcp'; Task = $task
                         Client = $client; Stopwatch = $sw
