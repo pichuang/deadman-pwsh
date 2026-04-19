@@ -41,53 +41,6 @@ param(
 )
 
 # ============================================================
-# Help message
-# ============================================================
-
-if ($Help) {
-    @"
-deadman.ps1 — Host monitoring tool using ICMP Ping and TCP Ping
-Ported from https://github.com/upa/deadman (MIT License)
-
-USAGE:
-    ./deadman.ps1 [options]
-
-OPTIONS:
-    -ConfigFile <path>   Configuration file path (default: deadman.conf)
-    -Scale, -s <int>     RTT bar chart scale in ms (default: 10)
-    -AsyncMode, -a       Enable async ping mode (ping all targets simultaneously)
-    -BlinkArrow, -b      Blink arrow indicator in async mode
-    -LogDir, -l <path>   Log directory path (writes ping results to files)
-    -Help, -h            Show this help message and exit
-
-CONFIG FILE FORMAT:
-    name    address    [options]
-    ---                            (separator line)
-    # comment                      (ignored)
-
-    Supported options:
-      source=<interface>           Specify source network interface
-      via=tcp port=<number>        Use TCP SYN/connect ping (cross-platform via TcpClient)
-
-EXAMPLES:
-    ./deadman.ps1
-    ./deadman.ps1 -ConfigFile deadman.conf
-    ./deadman.ps1 -ConfigFile deadman.conf -AsyncMode
-    ./deadman.ps1 -ConfigFile deadman.conf -Scale 20 -LogDir ./logs
-    sudo pwsh ./deadman.ps1 -a     # TCP ping no longer requires sudo / hping3
-
-INTERACTIVE KEYS:
-    r    Reset all target statistics
-    q    Quit the program
-
-REQUIREMENTS:
-    PowerShell 5.1 or later (PowerShell 7+ recommended for best experience)
-    No external dependencies (uses .NET BCL for ICMP and TCP probes)
-"@
-    exit 0
-}
-
-# ============================================================
 # Validate environment
 # ============================================================
 
@@ -702,6 +655,60 @@ class ConsoleUI {
 # ============================================================
 
 if ($MyInvocation.InvocationName -ne '.') {
+
+# If ConfigFile looks like a help flag or unknown option, show help
+if ($ConfigFile -match '^--?(help|\?)$') {
+    $Help = $true
+}
+
+if ($Help) {
+    @"
+deadman.ps1 — Host monitoring tool using ICMP Ping and TCP Ping
+Ported from https://github.com/upa/deadman (MIT License)
+
+USAGE:
+    ./deadman.ps1 [options]
+
+OPTIONS:
+    -ConfigFile <path>   Configuration file path (default: deadman.conf)
+    -Scale, -s <int>     RTT bar chart scale in ms (default: 10)
+    -AsyncMode, -a       Enable async ping mode (ping all targets simultaneously)
+    -BlinkArrow, -b      Blink arrow indicator in async mode
+    -LogDir, -l <path>   Log directory path (writes ping results to files)
+    -Help, -h            Show this help message and exit
+    --help               Also supported (GNU-style)
+
+CONFIG FILE FORMAT:
+    name    address    [options]
+    ---                            (separator line)
+    # comment                      (ignored)
+
+    Supported options:
+      source=<interface>           Specify source network interface
+      via=tcp port=<number>        Use TCP SYN/connect ping (cross-platform via TcpClient)
+
+EXAMPLES:
+    ./deadman.ps1
+    ./deadman.ps1 -ConfigFile deadman.conf
+    ./deadman.ps1 -ConfigFile deadman.conf -AsyncMode
+    ./deadman.ps1 -ConfigFile deadman.conf -Scale 20 -LogDir ./logs
+
+INTERACTIVE KEYS:
+    r    Reset all target statistics
+    q    Quit the program
+
+REQUIREMENTS:
+    PowerShell 5.1 or later (PowerShell 7+ recommended for best experience)
+    No external dependencies (uses .NET BCL for ICMP and TCP probes)
+"@
+    exit 0
+}
+
+# If ConfigFile looks like an unknown flag, show error with hint
+if ($ConfigFile -match '^-') {
+    Write-Error "Unknown option: $ConfigFile. Run './deadman.ps1 -Help' for usage."
+    exit 1
+}
 
 $targets = Read-DeadmanConfig -Path $ConfigFile -RttScale $Scale
 
