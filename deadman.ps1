@@ -975,7 +975,13 @@ function Start-AsyncMode {
             try {
                 [void][System.Threading.Tasks.Task]::WaitAll($tcpTasks.ToArray(), $waitAllTimeoutMs)
             }
-            catch { }
+            catch {
+                # AggregateException from WaitAll is expected when individual
+                # tasks fail (connection refused, timeout, etc.).  Each task's
+                # status is inspected individually in the result-collection
+                # loop below, so the aggregate can be safely discarded here.
+                Write-Debug "TCP WaitAll AggregateException: $($_.Exception.Message)"
+            }
         }
         foreach ($e in $entries) {
             if ($e.Type -eq 'Tcp') { $e.Stopwatch.Stop() }
@@ -986,7 +992,10 @@ function Start-AsyncMode {
             try {
                 [void][System.Threading.Tasks.Task]::WaitAll($icmpTasks.ToArray(), $waitAllTimeoutMs)
             }
-            catch { }
+            catch {
+                # Same as above — individual ICMP results are checked per-task.
+                Write-Debug "ICMP WaitAll AggregateException: $($_.Exception.Message)"
+            }
         }
 
         # Collect results and update each target's statistics
