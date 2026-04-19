@@ -67,14 +67,14 @@ CONFIG FILE FORMAT:
 
     Supported options:
       source=<interface>           Specify source network interface
-      via=tcp port=<number>        Use TCP SYN ping (Windows: tnc, macOS/Linux: hping3)
+      via=tcp port=<number>        Use TCP SYN/connect ping (cross-platform via TcpClient)
 
 EXAMPLES:
     ./deadman.ps1
     ./deadman.ps1 -ConfigFile deadman.conf
     ./deadman.ps1 -ConfigFile deadman.conf -AsyncMode
     ./deadman.ps1 -ConfigFile deadman.conf -Scale 20 -LogDir ./logs
-    sudo pwsh ./deadman.ps1 -a     # TCP ping on macOS/Linux requires root
+    sudo pwsh ./deadman.ps1 -a     # TCP ping no longer requires sudo / hping3
 
 INTERACTIVE KEYS:
     r    Reset all target statistics
@@ -82,7 +82,7 @@ INTERACTIVE KEYS:
 
 REQUIREMENTS:
     PowerShell 5.1 or later (PowerShell 7+ recommended for best experience)
-    hping3 (macOS/Linux only, for TCP ping, requires sudo)
+    No external dependencies (uses .NET BCL for ICMP and TCP probes)
 "@
     exit 0
 }
@@ -130,9 +130,6 @@ $script:UseAsciiChars = -not (Test-UnicodeSupport)
 
 # Script-level flag for PowerShell version (class methods cannot access $PSVersionTable)
 $script:PSMajorVersion = $PSVersionTable.PSVersion.Major
-
-# Script-level flag for Windows platform (class methods cannot call script functions reliably)
-$script:IsWindowsPlatform = Test-IsWindows
 
 # Set console output encoding to UTF-8 on Windows for proper Unicode rendering
 if (Test-IsWindows) {
@@ -195,6 +192,16 @@ class Separator {}
 
 # PingTarget class — encapsulates a single ping monitoring target
 class PingTarget {
+    # Ping timeout in milliseconds (used by both ICMP and TCP)
+    static [int]$PingTimeoutMs = 1000
+
+    # Bar chart character lookup tables (Unicode block elements / ASCII fallback)
+    static [char[]]$UnicodeBars = @(
+        [char]0x2581, [char]0x2582, [char]0x2583, [char]0x2584,
+        [char]0x2585, [char]0x2586, [char]0x2587, [char]0x2588
+    )
+    static [char[]]$AsciiBars = @('_', '.', ':', '-', '+', '=', '#', '@')
+
     [string]$Name
     [string]$Address
     [string]$Source
@@ -209,6 +216,9 @@ class PingTarget {
     [int]$TTL = 0
     [System.Collections.Generic.List[string]]$ResultHistory
     [int]$RttScale = 10
+
+    # Cached resolved IP addresses for TCP probes (avoids counting DNS time as RTT)
+    hidden [System.Net.IPAddress[]]$ResolvedAddresses = $null
 
     PingTarget([string]$name, [string]$address) {
         $this.Name = $name
@@ -225,6 +235,9 @@ class PingTarget {
     }
 
     # Execute a single ping (ICMP or TCP based on TcpPort)
+    # Uses native .NET APIs (System.Net.NetworkInformation.Ping / TcpClient)
+    # which are 10-50x faster than Test-Connection / Test-NetConnection cmdlets
+    # and behave identically on Windows PowerShell 5.1 and PowerShell 7+.
     [void] Send() {
         if ($this.TcpPort -gt 0) {
             $this.SendTcp()
@@ -232,86 +245,92 @@ class PingTarget {
         }
 
         $result = [PingResult]::new()
+        $ping = [System.Net.NetworkInformation.Ping]::new()
         try {
-            if ($script:PSMajorVersion -ge 7) {
-                # PowerShell 7+: use -TargetName, -TimeoutSeconds, -Ping
-                $params = @{
-                    TargetName     = $this.Address
-                    Count          = 1
-                    TimeoutSeconds = 1
-                    Ping           = $true
-                    ErrorAction    = 'Stop'
-                }
-                $reply = Test-Connection @params
-                if ($reply.Status -eq 'Success') {
-                    $result.Success = $true
-                    $result.ErrorCode = [PingErrorCode]::Success
-                    $result.RTT = [double]$reply.Latency
-                    $result.TTL = if ($null -ne $reply.Reply -and $null -ne $reply.Reply.Options) {
-                        [int]$reply.Reply.Options.Ttl
-                    } else { -1 }
-                }
-            }
-            else {
-                # PowerShell 5.1: use -ComputerName, returns Win32_PingStatus
-                $reply = Test-Connection -ComputerName $this.Address -Count 1 -ErrorAction Stop
-                if ($reply.StatusCode -eq 0) {
-                    $result.Success = $true
-                    $result.ErrorCode = [PingErrorCode]::Success
-                    $result.RTT = [double]$reply.ResponseTime
-                    $result.TTL = if ($null -ne $reply.ResponseTimeToLive) {
-                        [int]$reply.ResponseTimeToLive
-                    } else { -1 }
-                }
+            $reply = $ping.Send($this.Address, [PingTarget]::PingTimeoutMs)
+            if ($reply.Status -eq [System.Net.NetworkInformation.IPStatus]::Success) {
+                $result.Success = $true
+                $result.ErrorCode = [PingErrorCode]::Success
+                $result.RTT = [double]$reply.RoundtripTime
+                $result.TTL = if ($null -ne $reply.Options) { [int]$reply.Options.Ttl } else { -1 }
             }
         }
         catch {
-            $result.Success = $false
-            $result.ErrorCode = [PingErrorCode]::Failed
+            # Unreachable host, DNS failure, etc. — leave result as Failed
+        }
+        finally {
+            $ping.Dispose()
         }
         $this.Sent++
         $this.ConsumeResult($result)
     }
 
-    # Execute a TCP ping (SYN check)
-    # Windows: Test-NetConnection, macOS/Linux: hping3
-    [void] SendTcp() {
-        $result = [PingResult]::new()
-        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    # Resolve target address to IPAddress[] once and cache it.
+    # Separating DNS from the connect timing avoids counting resolution
+    # latency as RTT (which can be hundreds of ms for remote hostnames).
+    hidden [System.Net.IPAddress[]] ResolveAddresses() {
+        if ($null -ne $this.ResolvedAddresses -and $this.ResolvedAddresses.Length -gt 0) {
+            return $this.ResolvedAddresses
+        }
         try {
-            if ($script:IsWindowsPlatform) {
-                $tnc = Test-NetConnection -ComputerName $this.Address -Port $this.TcpPort -WarningAction SilentlyContinue -ErrorAction Stop
-                $sw.Stop()
-                if ($tnc.TcpTestSucceeded) {
-                    $result.Success = $true
-                    $result.ErrorCode = [PingErrorCode]::Success
-                    $result.RTT = [double]$sw.Elapsed.TotalMilliseconds
-                    $result.TTL = -1
-                }
+            $parsed = $null
+            if ([System.Net.IPAddress]::TryParse($this.Address, [ref]$parsed)) {
+                $this.ResolvedAddresses = @($parsed)
             }
             else {
-                $hpingOutput = & hping3 -S -p $this.TcpPort -c 1 $this.Address 2>&1
-                $sw.Stop()
-                $outputStr = $hpingOutput -join "`n"
-                if ($outputStr -match 'flags=SA' -or $outputStr -match 'flags=S\.A') {
-                    $result.Success = $true
-                    $result.ErrorCode = [PingErrorCode]::Success
-                    if ($outputStr -match 'rtt=([\d.]+)\s*ms') {
-                        $result.RTT = [double]$Matches[1]
-                    } else {
-                        $result.RTT = [double]$sw.Elapsed.TotalMilliseconds
-                    }
-                    $result.TTL = -1
-                    if ($outputStr -match 'ttl=(\d+)') {
-                        $result.TTL = [int]$Matches[1]
-                    }
-                }
+                $this.ResolvedAddresses = [System.Net.Dns]::GetHostAddresses($this.Address)
             }
         }
         catch {
+            $this.ResolvedAddresses = $null
+        }
+        return $this.ResolvedAddresses
+    }
+
+    # Execute a TCP ping (SYN/connect check) using TcpClient.ConnectAsync.
+    # Cross-platform: works on Windows / macOS / Linux without hping3 or sudo.
+    # RTT measures only the TCP handshake — DNS resolution is done up-front.
+    # Uses single-IPAddress overload to avoid ConnectAsync(IPAddress[], port)
+    # sequentially trying unreachable address families (e.g. IPv6 timeout + IPv4).
+    [void] SendTcp() {
+        $result = [PingResult]::new()
+        $addrs = $this.ResolveAddresses()
+        if ($null -eq $addrs -or $addrs.Length -eq 0) {
+            $this.Sent++
+            $this.ConsumeResult($result)
+            return
+        }
+
+        # Prefer IPv4 to avoid long timeouts when IPv6 is unreachable.
+        # Falls back to first available address if no IPv4 found.
+        $target = $null
+        foreach ($a in $addrs) {
+            if ($a.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork) {
+                $target = $a
+                break
+            }
+        }
+        if ($null -eq $target) { $target = $addrs[0] }
+
+        $client = [System.Net.Sockets.TcpClient]::new($target.AddressFamily)
+        $sw = [System.Diagnostics.Stopwatch]::new()
+        try {
+            $sw.Start()
+            $task = $client.ConnectAsync($target, $this.TcpPort)
+            if ($task.Wait([PingTarget]::PingTimeoutMs) -and $client.Connected) {
+                $sw.Stop()
+                $result.Success = $true
+                $result.ErrorCode = [PingErrorCode]::Success
+                $result.RTT = [double]$sw.Elapsed.TotalMilliseconds
+                $result.TTL = -1
+            }
+        }
+        catch {
+            # Connection refused / timeout — leave result as Failed
+        }
+        finally {
             $sw.Stop()
-            $result.Success = $false
-            $result.ErrorCode = [PingErrorCode]::Failed
+            $client.Close()
         }
         $this.Sent++
         $this.ConsumeResult($result)
@@ -334,33 +353,30 @@ class PingTarget {
         $this.ResultHistory.Insert(0, $this.GetResultChar($res))
     }
 
-    # Return bar chart character based on RTT
-    # Uses Unicode block elements when supported, ASCII fallback otherwise
+    # Return bar chart character based on RTT.
+    # Uses Unicode block elements when supported, ASCII fallback otherwise.
+    # Bucket index = floor(RTT / scale), clamped to [0, 7].
     [string] GetResultChar([PingResult]$res) {
         if ($res.ErrorCode -eq [PingErrorCode]::Failed) { return 'X' }
         $scale = $this.RttScale
-        if ($script:UseAsciiChars) {
-            # ASCII fallback for consoles without Unicode support
-            if ($res.RTT -lt ($scale * 1)) { return '_' }
-            if ($res.RTT -lt ($scale * 2)) { return '.' }
-            if ($res.RTT -lt ($scale * 3)) { return ':' }
-            if ($res.RTT -lt ($scale * 4)) { return '-' }
-            if ($res.RTT -lt ($scale * 5)) { return '+' }
-            if ($res.RTT -lt ($scale * 6)) { return '=' }
-            if ($res.RTT -lt ($scale * 7)) { return '#' }
-            return '@'
+        if ($scale -le 0) { $scale = 10 }
+        # Clamp RTT before int conversion to avoid OverflowException on
+        # extreme values (e.g. [double]::MaxValue / 10 -> int overflow).
+        $rttVal = [double]$res.RTT
+        $idx = 0
+        if ($rttVal -ge ($scale * 7)) {
+            $idx = 7
         }
-        if ($res.RTT -lt ($scale * 1)) { return [char]0x2581 }
-        if ($res.RTT -lt ($scale * 2)) { return [char]0x2582 }
-        if ($res.RTT -lt ($scale * 3)) { return [char]0x2583 }
-        if ($res.RTT -lt ($scale * 4)) { return [char]0x2584 }
-        if ($res.RTT -lt ($scale * 5)) { return [char]0x2585 }
-        if ($res.RTT -lt ($scale * 6)) { return [char]0x2586 }
-        if ($res.RTT -lt ($scale * 7)) { return [char]0x2587 }
-        return [char]0x2588
+        elseif ($rttVal -gt 0) {
+            $idx = [int]([Math]::Floor($rttVal / $scale))
+            if ($idx -gt 7) { $idx = 7 }
+        }
+        $bars = if ($script:UseAsciiChars) { [PingTarget]::AsciiBars } else { [PingTarget]::UnicodeBars }
+        return [string]$bars[$idx]
     }
 
     # Reset all statistics (preserve name, address, TcpPort)
+    # Also clears the DNS cache so long-running sessions pick up IP changes.
     [void] Refresh() {
         $this.State = $false
         $this.Loss = 0
@@ -371,6 +387,7 @@ class PingTarget {
         $this.Sent = 0
         $this.TTL = 0
         $this.ResultHistory.Clear()
+        $this.ResolvedAddresses = $null
     }
 
     [string] ToString() {
@@ -467,7 +484,7 @@ function Read-DeadmanConfig {
 # ============================================================
 
 $script:TITLE_PROGNAME = "Dead Man PWSH"
-$script:TITLE_VERSION = "[ver 2026.03.31-ps]"
+$script:TITLE_VERSION = "[ver 2026.04.19-ps]"
 $script:TITLE_VERTIC_LENGTH = 4
 $script:ARROW = " > "
 $script:REAR  = "   "
@@ -693,17 +710,6 @@ if ($targets.Count -eq 0) {
     exit 1
 }
 
-# Warn if TCP ping targets exist on macOS/Linux (hping3 requires root)
-$hasTcpTargets = $targets | Where-Object { $_ -isnot [Separator] -and $_.TcpPort -gt 0 }
-if ($hasTcpTargets) {
-    if (-not (Test-IsWindows)) {
-        $currentUser = & whoami 2>$null
-        if ($currentUser -ne 'root') {
-            Write-Warning "TCP ping targets detected. hping3 requires root privileges on macOS/Linux. Please run with: sudo pwsh $($MyInvocation.MyCommand.Path) $($MyInvocation.UnboundArguments -join ' ')"
-        }
-    }
-}
-
 # ============================================================
 # Ping interval constants (seconds)
 # ============================================================
@@ -718,20 +724,54 @@ $PING_ALLTARGET_INTERVAL = 1
 # ============================================================
 
 $ui = [ConsoleUI]::new($Scale)
-$ui.UpdateLayout($targets)
-$ui.PrintTitle($false)
-$ui.PrintReference()
 
-# Draw initial screen (blank lines and separators)
-for ($idx = 0; $idx -lt $targets.Count; $idx++) {
-    $number = $idx + 1
-    if ($targets[$idx] -is [Separator]) {
-        $ui.PrintSeparator($number)
-    }
-    else {
-        $ui.PrintPingTarget($targets[$idx], $number)
+# ============================================================
+# Helper functions
+# ============================================================
+
+# Draw the full screen (title + reference header + every target row).
+# Used for the initial paint and after a terminal resize is detected.
+function Invoke-FullRedraw {
+    param(
+        [ConsoleUI]$UI,
+        [System.Collections.Generic.List[object]]$Targets,
+        [bool]$WithWheel
+    )
+    $UI.UpdateLayout($Targets)
+    $UI.EraseTitle()
+    $UI.PrintTitle($WithWheel)
+    $UI.EraseReference()
+    $UI.PrintReference()
+    for ($i = 0; $i -lt $Targets.Count; $i++) {
+        $number = $i + 1
+        if ($Targets[$i] -is [Separator]) {
+            $UI.PrintSeparator($number)
+        }
+        else {
+            $UI.PrintPingTarget($Targets[$i], $number)
+        }
     }
 }
+
+# Detect terminal resize and redraw if needed. Returns $true when a redraw
+# happened so callers can reset any cached layout assumptions.
+function Test-TerminalResize {
+    param(
+        [ConsoleUI]$UI,
+        [System.Collections.Generic.List[object]]$Targets,
+        [bool]$WithWheel
+    )
+    if ([System.Console]::WindowWidth -ne $UI.Width -or
+        [System.Console]::WindowHeight -ne $UI.Height) {
+        $UI.Reinit()
+        Invoke-FullRedraw -UI $UI -Targets $Targets -WithWheel $WithWheel
+        return $true
+    }
+    return $false
+}
+
+# Initial paint
+Invoke-FullRedraw -UI $ui -Targets $targets -WithWheel $false
 
 # ============================================================
 # Key handler function — non-blocking key read
@@ -781,31 +821,20 @@ function Start-SyncMode {
         [double]$AllTargetInterval
     )
 
-    while ($true) {
-        # Detect terminal size changes, redraw if necessary
-        $newW = [System.Console]::WindowWidth
-        $newH = [System.Console]::WindowHeight
-        if ($newW -ne $UI.Width -or $newH -ne $UI.Height) {
-            $UI.Reinit()
-            $UI.UpdateLayout($Targets)
-            $UI.PrintTitle($false)
-            $UI.PrintReference()
-            for ($i = 0; $i -lt $Targets.Count; $i++) {
-                $number = $i + 1
-                if ($Targets[$i] -is [Separator]) {
-                    $UI.PrintSeparator($number)
-                }
-                else {
-                    $UI.PrintPingTarget($Targets[$i], $number)
-                }
-            }
-        }
+    $pingIntervalMs = [int]($PingInterval * 1000)
+    $allTargetIntervalMs = [int]($AllTargetInterval * 1000)
+    $hasLogDir = -not [string]::IsNullOrEmpty($LogDirectory)
 
-        $UI.UpdateLayout($Targets)
-        $UI.EraseTitle()
-        $UI.PrintTitle($false)
-        $UI.EraseReference()
-        $UI.PrintReference()
+    while ($true) {
+        # Detect terminal size changes; full redraw rebuilds layout + every row.
+        # Skip the per-cycle layout repaint when a resize already redrew.
+        if (-not (Test-TerminalResize -UI $UI -Targets $Targets -WithWheel $false)) {
+            $UI.UpdateLayout($Targets)
+            $UI.EraseTitle()
+            $UI.PrintTitle($false)
+            $UI.EraseReference()
+            $UI.PrintReference()
+        }
 
         # Ping each target one by one
         for ($idx = 0; $idx -lt $Targets.Count; $idx++) {
@@ -813,40 +842,25 @@ function Start-SyncMode {
             if ($Targets[$idx] -is [Separator]) { continue }
 
             $target = $Targets[$idx]
-
-            # Show arrow indicating the currently pinged target
             $UI.PrintArrow($number)
-
-            # Execute ping
             $target.Send()
-
-            # Update UI
             $UI.ErasePingTarget($number)
             $UI.PrintPingTarget($target, $number)
 
-            # Write log
-            if (-not [string]::IsNullOrEmpty($LogDirectory)) {
-                $UI.WriteLog($LogDirectory, $target)
-            }
+            if ($hasLogDir) { $UI.WriteLog($LogDirectory, $target) }
 
-            # Handle key input
             Invoke-KeyHandler -UI $UI -Targets $Targets
-
-            # Brief wait before next target
-            Start-Sleep -Milliseconds ([int]($PingInterval * 1000))
-
-            # Clear arrow
+            Start-Sleep -Milliseconds $pingIntervalMs
             $UI.EraseArrow($number)
         }
 
-        # After one round, show arrow at the last target and wait
+        # After one round, show arrow at the last position and wait
         $lastIdx = $Targets.Count
         $UI.PrintArrow($lastIdx)
-        Start-Sleep -Milliseconds ([int]($AllTargetInterval * 1000))
+        Start-Sleep -Milliseconds $allTargetIntervalMs
         $UI.EraseArrow($lastIdx)
         $UI.ErasePingTarget($lastIdx + 1)
 
-        # Handle key input
         Invoke-KeyHandler -UI $UI -Targets $Targets
     }
 }
@@ -864,192 +878,182 @@ function Start-AsyncMode {
         [bool]$BlinkArrowEnabled
     )
 
+    $allTargetIntervalMs = [int]($AllTargetInterval * 1000)
+    $hasLogDir = -not [string]::IsNullOrEmpty($LogDirectory)
+    $pingTimeoutMs = [PingTarget]::PingTimeoutMs
+    # Wait for all async I/O to complete (timeout = ping timeout + small buffer)
+    $waitAllTimeoutMs = $pingTimeoutMs + 500
+
     while ($true) {
-        # Detect terminal size changes
-        $newW = [System.Console]::WindowWidth
-        $newH = [System.Console]::WindowHeight
-        if ($newW -ne $UI.Width -or $newH -ne $UI.Height) {
-            $UI.Reinit()
+        # Detect terminal size changes; full redraw rebuilds layout + every row.
+        if (-not (Test-TerminalResize -UI $UI -Targets $Targets -WithWheel $true)) {
             $UI.UpdateLayout($Targets)
+            $UI.IncrementStep()
+            $UI.EraseTitle()
             $UI.PrintTitle($true)
+            $UI.EraseReference()
             $UI.PrintReference()
-            for ($i = 0; $i -lt $Targets.Count; $i++) {
-                $number = $i + 1
-                if ($Targets[$i] -is [Separator]) {
-                    $UI.PrintSeparator($number)
-                }
-                else {
-                    $UI.PrintPingTarget($Targets[$i], $number)
-                }
-            }
         }
 
-        $UI.UpdateLayout($Targets)
-        $UI.IncrementStep()
-        $UI.EraseTitle()
-        $UI.PrintTitle($true)
-        $UI.EraseReference()
-        $UI.PrintReference()
-
-        # Blink arrows (optional)
+        # Optional blinking arrow indicator
         if ($BlinkArrowEnabled) {
             for ($i = 0; $i -lt $Targets.Count; $i++) {
-                if ($Targets[$i] -is [Separator]) { continue }
-                $UI.PrintArrow($i + 1)
+                if ($Targets[$i] -isnot [Separator]) { $UI.PrintArrow($i + 1) }
             }
         }
 
-        # Record start time
-        $start = [System.Diagnostics.Stopwatch]::StartNew()
+        $cycleStart = [System.Diagnostics.Stopwatch]::StartNew()
 
-        # Collect non-Separator targets for parallel ping
-        $pingTargets = @()
-        $pingIndices = @()
+        # Kick off every ping concurrently using native async I/O.
+        # No Start-Job / Start-ThreadJob = no process or runspace overhead;
+        # this is dramatically faster than the previous implementation,
+        # especially on Windows PowerShell 5.1 (which lacks ThreadJob built-in).
+        $entries = [System.Collections.Generic.List[object]]::new()
+
         for ($i = 0; $i -lt $Targets.Count; $i++) {
-            if ($Targets[$i] -is [Separator]) { continue }
-            $pingTargets += $Targets[$i]
-            $pingIndices += $i
-        }
+            $t = $Targets[$i]
+            if ($t -is [Separator]) { continue }
 
-        # Parallel ping using Start-ThreadJob (PS 7+) or Start-Job (PS 5.1)
-        $jobs = @()
-        $usePsVer7 = $PSVersionTable.PSVersion.Major -ge 7
-        $isWinForJobs = Test-IsWindows
-
-        # Define ScriptBlocks for job-based parallel ping
-        $tcpPingBlock = {
-            param($addr, $port, $isWin, $psVer)
-            $sw = [System.Diagnostics.Stopwatch]::StartNew()
-            try {
-                if ($isWin) {
-                    $tnc = Test-NetConnection -ComputerName $addr -Port $port -WarningAction SilentlyContinue -ErrorAction Stop
-                    $sw.Stop()
-                    if ($tnc.TcpTestSucceeded) {
-                        return @{ Success = $true; RTT = [double]$sw.Elapsed.TotalMilliseconds; TTL = -1 }
-                    }
-                    return @{ Success = $false; RTT = 0; TTL = 0 }
-                }
-                else {
-                    $hpingOutput = & hping3 -S -p $port -c 1 $addr 2>&1
-                    $sw.Stop()
-                    $outputStr = $hpingOutput -join "`n"
-                    if ($outputStr -match 'flags=SA' -or $outputStr -match 'flags=S\.A') {
-                        $rtt = [double]$sw.Elapsed.TotalMilliseconds
-                        $ttl = -1
-                        if ($outputStr -match 'rtt=([\d.]+)\s*ms') { $rtt = [double]$Matches[1] }
-                        if ($outputStr -match 'ttl=(\d+)') { $ttl = [int]$Matches[1] }
-                        return @{ Success = $true; RTT = $rtt; TTL = $ttl }
-                    }
-                    return @{ Success = $false; RTT = 0; TTL = 0 }
-                }
-            }
-            catch {
-                $sw.Stop()
-                return @{ Success = $false; RTT = 0; TTL = 0 }
-            }
-        }
-
-        $icmpPingBlock = {
-            param($addr, $psVer)
-            try {
-                if ($psVer -ge 7) {
-                    $reply = Test-Connection -TargetName $addr -Count 1 -TimeoutSeconds 1 -Ping -ErrorAction Stop
-                    if ($reply.Status -eq 'Success') {
-                        $ttl = -1
-                        if ($null -ne $reply.Reply -and $null -ne $reply.Reply.Options) {
-                            $ttl = [int]$reply.Reply.Options.Ttl
-                        }
-                        return @{ Success = $true; RTT = [double]$reply.Latency; TTL = $ttl }
-                    }
-                }
-                else {
-                    $reply = Test-Connection -ComputerName $addr -Count 1 -ErrorAction Stop
-                    if ($reply.StatusCode -eq 0) {
-                        $ttl = -1
-                        if ($null -ne $reply.ResponseTimeToLive) { $ttl = [int]$reply.ResponseTimeToLive }
-                        return @{ Success = $true; RTT = [double]$reply.ResponseTime; TTL = $ttl }
-                    }
-                }
-                return @{ Success = $false; RTT = 0; TTL = 0 }
-            }
-            catch {
-                return @{ Success = $false; RTT = 0; TTL = 0 }
-            }
-        }
-
-        foreach ($t in $pingTargets) {
             if ($t.TcpPort -gt 0) {
-                if ($usePsVer7) {
-                    $job = Start-ThreadJob -ScriptBlock $tcpPingBlock -ArgumentList $t.Address, $t.TcpPort, $isWinForJobs, $PSVersionTable.PSVersion.Major
-                } else {
-                    $job = Start-Job -ScriptBlock $tcpPingBlock -ArgumentList $t.Address, $t.TcpPort, $isWinForJobs, $PSVersionTable.PSVersion.Major
+                # Resolve DNS up-front (cached) so RTT reflects pure TCP handshake
+                $addrs = $t.ResolveAddresses()
+                if ($null -eq $addrs -or $addrs.Length -eq 0) {
+                    $t.Sent++; $t.ConsumeResult([PingResult]::new())
+                    continue
+                }
+                # Prefer IPv4 to avoid long timeouts when IPv6 is unreachable
+                $tcpTarget = $null
+                foreach ($a in $addrs) {
+                    if ($a.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork) {
+                        $tcpTarget = $a; break
+                    }
+                }
+                if ($null -eq $tcpTarget) { $tcpTarget = $addrs[0] }
+                $client = [System.Net.Sockets.TcpClient]::new($tcpTarget.AddressFamily)
+                $sw = [System.Diagnostics.Stopwatch]::new()
+                try {
+                    $sw.Start()
+                    $task = $client.ConnectAsync($tcpTarget, $t.TcpPort)
+                    $entries.Add([pscustomobject]@{
+                        Target = $t; Type = 'Tcp'; Task = $task
+                        Client = $client; Stopwatch = $sw
+                    })
+                }
+                catch {
+                    # Synchronous failure (e.g. invalid address) — record as failed
+                    $sw.Stop(); $client.Close()
+                    $t.Sent++; $t.ConsumeResult([PingResult]::new())
                 }
             }
             else {
-                if ($usePsVer7) {
-                    $job = Start-ThreadJob -ScriptBlock $icmpPingBlock -ArgumentList $t.Address, $PSVersionTable.PSVersion.Major
-                } else {
-                    $job = Start-Job -ScriptBlock $icmpPingBlock -ArgumentList $t.Address, $PSVersionTable.PSVersion.Major
+                $ping = [System.Net.NetworkInformation.Ping]::new()
+                try {
+                    $task = $ping.SendPingAsync($t.Address, $pingTimeoutMs)
+                    $entries.Add([pscustomobject]@{
+                        Target = $t; Type = 'Icmp'; Task = $task; Ping = $ping
+                    })
+                }
+                catch {
+                    $ping.Dispose()
+                    $t.Sent++; $t.ConsumeResult([PingResult]::new())
                 }
             }
-            $jobs += @{ Job = $job; Target = $t }
         }
 
-        # Wait for all jobs to complete
-        $allJobs = $jobs | ForEach-Object { $_.Job }
-        $null = Wait-Job -Job $allJobs -Timeout 5
+        # Separate TCP and ICMP tasks so that slow ICMP timeouts (e.g. IPv6
+        # unreachable ~1000ms) do not inflate TCP stopwatch readings.
+        $tcpTasks = [System.Collections.Generic.List[System.Threading.Tasks.Task]]::new()
+        $icmpTasks = [System.Collections.Generic.List[System.Threading.Tasks.Task]]::new()
+        foreach ($e in $entries) {
+            if ($e.Type -eq 'Tcp') { $tcpTasks.Add($e.Task) }
+            else { $icmpTasks.Add($e.Task) }
+        }
 
-        # Collect results and update each target
-        foreach ($entry in $jobs) {
-            $result = Receive-Job -Job $entry.Job -ErrorAction SilentlyContinue
-            Remove-Job -Job $entry.Job -Force -ErrorAction SilentlyContinue
-
-            $t = $entry.Target
-            $t.Sent++
-
-            $pingResult = [PingResult]::new()
-            if ($null -ne $result -and $result.Success) {
-                $pingResult.Success = $true
-                $pingResult.ErrorCode = [PingErrorCode]::Success
-                $pingResult.RTT = $result.RTT
-                $pingResult.TTL = $result.TTL
+        # Wait for TCP tasks first, then immediately freeze their stopwatches
+        if ($tcpTasks.Count -gt 0) {
+            try {
+                [void][System.Threading.Tasks.Task]::WaitAll($tcpTasks.ToArray(), $waitAllTimeoutMs)
             }
-            $t.ConsumeResult($pingResult)
+            catch {
+                # AggregateException from WaitAll is expected when individual
+                # tasks fail (connection refused, timeout, etc.).  Each task's
+                # status is inspected individually in the result-collection
+                # loop below, so the aggregate can be safely discarded here.
+                Write-Debug "TCP WaitAll AggregateException: $($_.Exception.Message)"
+            }
+        }
+        foreach ($e in $entries) {
+            if ($e.Type -eq 'Tcp') { $e.Stopwatch.Stop() }
         }
 
-        $elapsed = $start.Elapsed.TotalSeconds
+        # Now wait for ICMP tasks (may include long timeouts for unreachable hosts)
+        if ($icmpTasks.Count -gt 0) {
+            try {
+                [void][System.Threading.Tasks.Task]::WaitAll($icmpTasks.ToArray(), $waitAllTimeoutMs)
+            }
+            catch {
+                # Same as above — individual ICMP results are checked per-task.
+                Write-Debug "ICMP WaitAll AggregateException: $($_.Exception.Message)"
+            }
+        }
 
-        # Update UI display for all targets
+        # Collect results and update each target's statistics
+        foreach ($e in $entries) {
+            $r = [PingResult]::new()
+            try {
+                if ($e.Type -eq 'Icmp') {
+                    if ($e.Task.IsCompleted -and -not $e.Task.IsFaulted -and -not $e.Task.IsCanceled) {
+                        $reply = $e.Task.Result
+                        if ($null -ne $reply -and
+                            $reply.Status -eq [System.Net.NetworkInformation.IPStatus]::Success) {
+                            $r.Success = $true
+                            $r.ErrorCode = [PingErrorCode]::Success
+                            $r.RTT = [double]$reply.RoundtripTime
+                            $r.TTL = if ($null -ne $reply.Options) { [int]$reply.Options.Ttl } else { -1 }
+                        }
+                    }
+                    $e.Ping.Dispose()
+                }
+                else {
+                    if ($e.Task.IsCompleted -and -not $e.Task.IsFaulted -and
+                        -not $e.Task.IsCanceled -and $e.Client.Connected) {
+                        $r.Success = $true
+                        $r.ErrorCode = [PingErrorCode]::Success
+                        $r.RTT = [double]$e.Stopwatch.Elapsed.TotalMilliseconds
+                        $r.TTL = -1
+                    }
+                    $e.Client.Close()
+                }
+            }
+            catch {
+                # Treat any exception as a failed ping
+                Write-Debug "Result collection exception: $($_.Exception.Message)"
+            }
+            $e.Target.Sent++
+            $e.Target.ConsumeResult($r)
+        }
+
+        # Repaint affected rows
         for ($i = 0; $i -lt $Targets.Count; $i++) {
-            $number = $i + 1
             if ($Targets[$i] -is [Separator]) { continue }
-
+            $number = $i + 1
             $UI.ErasePingTarget($number)
             $UI.PrintPingTarget($Targets[$i], $number)
-
-            if ($BlinkArrowEnabled) {
-                $UI.EraseArrow($number)
-            }
-
-            # Write log
-            if (-not [string]::IsNullOrEmpty($LogDirectory)) {
-                $UI.WriteLog($LogDirectory, $Targets[$i])
-            }
+            if ($BlinkArrowEnabled) { $UI.EraseArrow($number) }
+            if ($hasLogDir) { $UI.WriteLog($LogDirectory, $Targets[$i]) }
         }
 
-        # Update spinner animation
+        # Advance the spinner in the title bar
         $UI.IncrementStep()
         $UI.EraseTitle()
         $UI.PrintTitle($true)
 
-        # Wait at least AllTargetInterval seconds
-        if ($elapsed -lt $AllTargetInterval) {
-            Start-Sleep -Milliseconds ([int](($AllTargetInterval - $elapsed) * 1000))
-        }
+        # Pace the loop to roughly AllTargetInterval per cycle.
+        # (Previously slept twice — once compensating, once unconditional —
+        # which doubled the cycle time.)
+        $remainingMs = $allTargetIntervalMs - [int]$cycleStart.Elapsed.TotalMilliseconds
+        if ($remainingMs -gt 0) { Start-Sleep -Milliseconds $remainingMs }
 
-        Start-Sleep -Milliseconds ([int]($AllTargetInterval * 1000))
-
-        # Handle key input
         Invoke-KeyHandler -UI $UI -Targets $Targets
     }
 }

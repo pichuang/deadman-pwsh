@@ -89,13 +89,26 @@ Two separate jobs (not matrix with `shell:`) because GitHub Actions `shell:` doe
 
 - **Default branch**: `main` (protected)
 - **Development branch**: `develop`
-- **Flow**: develop → PR → CI passes → merge to main
+- **Flow**: develop → PR → CI passes → approve → merge to main
 - **Branch protection (main)**:
   - 1 required review (CODEOWNERS enforced)
   - 4 required status checks (win-2022/2025 × PS 5.1/7)
   - Dismiss stale reviews, no force push, conversation resolution required
 - **CODEOWNERS**: `@pichuang` for all files
 - **PR auto-assign**: `pr-assign.yml` sets assignee to `pichuang`, requests CODEOWNERS review (skips if author = owner)
+
+### Development rules
+
+- **All changes must be made on `develop` branch** — never commit directly to `main`
+- Before starting any new work, always sync with the latest `main`:
+  ```bash
+  git checkout develop
+  git fetch origin
+  git merge origin/main
+  ```
+- After committing on local `develop`, push to `origin/develop` and create a PR targeting `main`
+- The PR must pass all CI checks and receive at least one approval before merging to `main`
+- Copilot agents must verify the current branch is `develop` (not `main`) before making any code changes
 
 ## OpenSSF Scorecard
 

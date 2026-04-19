@@ -44,3 +44,16 @@ jobs:
             } else {
               core.info(`Skipped review request: PR author (${prAuthor}) is the only CODEOWNER`);
             }
+
+            // Request Copilot code review (added as a team reviewer)
+            try {
+              await github.rest.pulls.requestReviewers({
+                owner,
+                repo,
+                pull_number: pr.number,
+                team_reviewers: ['copilot-pullrequest-reviewer']
+              });
+              core.info(`Requested Copilot code review for PR #${pr.number}`);
+            } catch (err) {
+              core.warning(`Failed to request Copilot review: ${err.message}`);
+            }
