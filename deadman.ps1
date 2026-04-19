@@ -376,6 +376,7 @@ class PingTarget {
     }
 
     # Reset all statistics (preserve name, address, TcpPort)
+    # Also clears the DNS cache so long-running sessions pick up IP changes.
     [void] Refresh() {
         $this.State = $false
         $this.Loss = 0
@@ -386,6 +387,7 @@ class PingTarget {
         $this.Sent = 0
         $this.TTL = 0
         $this.ResultHistory.Clear()
+        $this.ResolvedAddresses = $null
     }
 
     [string] ToString() {
@@ -907,7 +909,6 @@ function Start-AsyncMode {
         # this is dramatically faster than the previous implementation,
         # especially on Windows PowerShell 5.1 (which lacks ThreadJob built-in).
         $entries = [System.Collections.Generic.List[object]]::new()
-        $tasks = [System.Collections.Generic.List[System.Threading.Tasks.Task]]::new()
 
         for ($i = 0; $i -lt $Targets.Count; $i++) {
             $t = $Targets[$i]
@@ -937,7 +938,6 @@ function Start-AsyncMode {
                         Target = $t; Type = 'Tcp'; Task = $task
                         Client = $client; Stopwatch = $sw
                     })
-                    $tasks.Add($task)
                 }
                 catch {
                     # Synchronous failure (e.g. invalid address) — record as failed
@@ -952,7 +952,6 @@ function Start-AsyncMode {
                     $entries.Add([pscustomobject]@{
                         Target = $t; Type = 'Icmp'; Task = $task; Ping = $ping
                     })
-                    $tasks.Add($task)
                 }
                 catch {
                     $ping.Dispose()
@@ -1028,6 +1027,7 @@ function Start-AsyncMode {
             }
             catch {
                 # Treat any exception as a failed ping
+                Write-Debug "Result collection exception: $($_.Exception.Message)"
             }
             $e.Target.Sent++
             $e.Target.ConsumeResult($r)

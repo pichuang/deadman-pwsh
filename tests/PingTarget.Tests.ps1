@@ -310,8 +310,12 @@ Describe 'PingTarget class' {
         It 'Should update state to no response on ping failure' {
             # 192.0.2.0/24 is the TEST-NET-1 documentation block (RFC 5737),
             # guaranteed unroutable — perfect for a deterministic ping failure.
+            # Lower timeout to keep CI fast (default 1000ms is unnecessarily long here).
+            $saved = [PingTarget]::PingTimeoutMs
+            [PingTarget]::PingTimeoutMs = 200
             $target = [PingTarget]::new('test', '192.0.2.1')
             $target.Send()
+            [PingTarget]::PingTimeoutMs = $saved
 
             $target.State | Should -BeFalse
             $target.Loss | Should -Be 1
