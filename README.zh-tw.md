@@ -45,15 +45,15 @@ deadman 是一個使用 Ping 監控主機狀態的觀測工具。透過 ICMP Ech
 ### 終端機與字元顯示
 
 - **Windows Terminal**（建議使用）：完整支援 Unicode 柱狀圖字元（▁▂▃▄▅▆▇█），最佳視覺效果
-- **conhost**（傳統主控台）：自動降級為 ASCII 字元（`_.oO+=@#`）顯示 RTT 柱狀圖
+- **conhost**（傳統主控台）：自動降級為 ASCII 字元（`_.:\u2010+=@#`）顯示 RTT 柱狀圖
 - 若要在 conhost 中啟用 Unicode，請在執行前執行 `chcp 65001`，或使用 **Cascadia Code** 等字型
 
 ## 快速開始
 
 ```powershell
 # 複製專案
-git clone https://github.com/pichuang/deadman-win.git
-cd deadman-win
+git clone https://github.com/pichuang/deadman-pwsh.git
+cd deadman-pwsh
 
 # 使用預設設定檔啟動（同步模式）
 ./deadman.ps1 -ConfigFile deadman.conf
@@ -142,22 +142,78 @@ Invoke-Pester ./tests/ -Output Detailed -ExcludeTag 'Network'
 
 ```
 deadman-pwsh/
-├── deadman.ps1           # 單檔程式（所有類別、解析器、UI、主迴圈皆包含在內）
-├── deadman.conf          # 範例設定檔
+├── deadman.ps1                  # 單檔程式（所有類別、解析器、UI、主迴圈皆包含在內）
+├── deadman.conf                 # 範例設定檔
+├── LICENSE                      # MIT 授權
+├── SECURITY.md                  # 安全政策與漏洞回報流程
+├── README.md                    # 英文文件
+├── README.zh-tw.md              # 中文（繁體）文件
 ├── .github/
+│   ├── CODEOWNERS               # 自動指派審查者
+│   ├── dependabot.yml           # 自動化相依更新
+│   ├── pull_request_template.md # PR 標準化檢查表
 │   └── workflows/
-│       └── ci.yml        # GitHub Actions CI（Windows Server 2019/2022 × PS 5.1/7）
-├── tests/
-│   ├── PingTarget.Tests.ps1    # PingTarget 單元測試
-│   ├── ConfigParser.Tests.ps1  # ConfigParser 單元測試
-│   ├── ConsoleUI.Tests.ps1     # ConsoleUI 單元測試
-│   ├── Integration.Tests.ps1   # 整合測試
-│   └── WindowsCompat.Tests.ps1 # Windows 相容性測試
-├── README.md             # 英文文件
-└── readme.zh-tw.md       # 中文（繁體）文件
+│       ├── ci.yml               # CI 測試（Windows Server 2022/2025 × PS 5.1/7）
+│       ├── sast.yml             # SAST（CodeQL + PSScriptAnalyzer）
+│       ├── fuzzing.yml          # Fuzz 測試（屬性式）
+│       ├── scorecard.yml        # OpenSSF Scorecard 分析
+│       ├── release.yml          # 版本發布（含 SLSA provenance）
+│       └── pr-assign.yml        # 自動指派 PR assignee/reviewer
+└── tests/
+    ├── ConfigParser.Tests.ps1   # 設定檔解析器單元測試
+    ├── ConsoleUI.Tests.ps1      # 終端機 UI 單元測試
+    ├── PingTarget.Tests.ps1     # PingTarget 單元測試
+    ├── Integration.Tests.ps1    # 整合測試
+    ├── WindowsCompat.Tests.ps1  # Windows 相容性測試
+    └── Fuzz.Tests.ps1           # Fuzz / 屬性式測試
 ```
 
 > **說明**：`deadman.ps1` 是完全獨立的單檔程式 — 只需下載這個檔案和 `deadman.conf` 即可開始使用。
+
+## CI/CD 與安全
+
+| 工作流程 | 用途 | 觸發時機 |
+|---------|------|----------|
+| **CI** | Pester 測試（Windows Server 2022/2025 × PS 5.1/7，4 個矩陣組合） | Push/PR |
+| **SAST** | CodeQL（Actions 安全）+ PSScriptAnalyzer（SARIF → Code Scanning） | Push/PR + 每週 |
+| **Fuzzing** | 20 個屬性式 fuzz 測試（注入、Unicode、邊界條件） | Push/PR + 每週 |
+| **Scorecard** | OpenSSF Scorecard 分析 → scorecard.dev | Push + 每週 |
+| **Release** | 建構 zip + SHA-256 + SLSA provenance（Sigstore） | Tag push（`yyyymmdd`） |
+| **PR Auto-Assign** | 自動指派 assignee + CODEOWNERS reviewer | PR 建立/重開 |
+
+### 分支保護規則（main）
+
+- 需要 1 個 PR review approval（強制 CODEOWNERS）
+- 需要 4 個 CI status checks 全部通過
+- 程式碼變更後自動失效與先前的 approval
+- 禁止 force push / 刪除分支
+- 要求解決所有審查討論
+
+### 版本發布
+
+使用日期格式的 tag 觸發 release：
+
+```bash
+git tag -a 20260419 -m "Release 20260419"
+git push origin 20260419
+```
+
+Release workflow 會自動：
+1. 建構 zip 存檔（`deadman-pwsh-20260419.zip`）
+2. 產生 SHA-256 校驗碼
+3. 建立 SLSA provenance 證明（`.sigstore.json`）
+4. 發布到 GitHub Releases
+
+驗證 release：
+
+```bash
+sha256sum -c checksums-sha256.txt
+gh attestation verify deadman-pwsh-20260419.zip -o pichuang
+```
+
+### 安全政策
+
+請參考 [SECURITY.md](SECURITY.md) 了解漏洞回報流程。
 
 ## 與原版差異
 
