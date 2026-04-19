@@ -286,72 +286,30 @@ Describe 'PingTarget class' {
     }
 
     # ========================================================
-    # Send() method tests (using Mock)
+    # Send() method tests (uses native .NET System.Net.NetworkInformation.Ping
+    # and System.Net.Sockets.TcpClient — no cmdlet mocking needed).
     # ========================================================
 
     Context 'Send method' {
 
         It 'Sent count should increase after calling Send' {
-            # Mock Test-Connection to return success
-            if ($PSVersionTable.PSVersion.Major -ge 7) {
-                Mock Test-Connection {
-                    return [PSCustomObject]@{
-                        Status  = 'Success'
-                        Latency = 10
-                        Reply   = [PSCustomObject]@{
-                            Options = [PSCustomObject]@{ Ttl = 64 }
-                        }
-                    }
-                }
-            } else {
-                Mock Test-Connection {
-                    return [PSCustomObject]@{
-                        StatusCode          = 0
-                        ResponseTime        = 10
-                        ResponseTimeToLive  = 64
-                    }
-                }
-            }
-
             $target = [PingTarget]::new('test', '127.0.0.1')
             $target.Send()
-
             $target.Sent | Should -Be 1
         }
 
         It 'Should update state to alive on ping success' {
-            if ($PSVersionTable.PSVersion.Major -ge 7) {
-                Mock Test-Connection {
-                    return [PSCustomObject]@{
-                        Status  = 'Success'
-                        Latency = 5
-                        Reply   = [PSCustomObject]@{
-                            Options = [PSCustomObject]@{ Ttl = 128 }
-                        }
-                    }
-                }
-            } else {
-                Mock Test-Connection {
-                    return [PSCustomObject]@{
-                        StatusCode          = 0
-                        ResponseTime        = 5
-                        ResponseTimeToLive  = 128
-                    }
-                }
-            }
-
+            # 127.0.0.1 loopback is always reachable on every supported OS
             $target = [PingTarget]::new('test', '127.0.0.1')
             $target.Send()
 
             $target.State | Should -BeTrue
-            $target.RTT | Should -Be 5
+            $target.RTT | Should -BeGreaterOrEqual 0
         }
 
         It 'Should update state to no response on ping failure' {
-            Mock Test-Connection {
-                throw "Ping failed"
-            }
-
+            # 192.0.2.0/24 is the TEST-NET-1 documentation block (RFC 5737),
+            # guaranteed unroutable — perfect for a deterministic ping failure.
             $target = [PingTarget]::new('test', '192.0.2.1')
             $target.Send()
 
@@ -360,18 +318,11 @@ Describe 'PingTarget class' {
         }
 
         It 'TCP ping target should call SendTcp instead of ICMP ping' {
-            # When TcpPort > 0, Send() should delegate to SendTcp()
-            # Mock Test-NetConnection for Windows or hping3 for others
-            if (Test-IsWindows) {
-                Mock Test-NetConnection {
-                    return [PSCustomObject]@{ TcpTestSucceeded = $true }
-                }
-            }
-
+            # When TcpPort > 0, Send() should delegate to SendTcp() —
+            # we don't care about the result, only that Sent is incremented
+            # and no exception escapes.
             $target = [PingTarget]::new('webhost', '127.0.0.1')
-            $target.TcpPort = 80
-
-            # Send should not throw even if external commands are unavailable
+            $target.TcpPort = 1   # likely closed → fast failure
             { $target.Send() } | Should -Not -Throw
             $target.Sent | Should -Be 1
         }
