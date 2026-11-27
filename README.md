@@ -12,9 +12,10 @@ external executables, compiled helpers, jobs or third-party runtime dependencies
 
 ## Quick start
 
-Copy **only `pingpongman.ps1`** to the destination machine. Edit the
-`$script:EmbeddedConfig` block near the top to choose targets, then run in an
-interactive PowerShell console:
+Download and copy **only [pingpongman.ps1](pingpongman.ps1)** to the destination machine.
+Open it in a text editor, search for **`Setting`**, and edit the target rows
+inside `$script:EmbeddedConfig` immediately after the script parameters.
+Save the same file, then run it in an interactive PowerShell console:
 
 ```powershell
 .\pingpongman.ps1
@@ -23,9 +24,13 @@ interactive PowerShell console:
 .\pingpongman.ps1 -Help
 ```
 
-`-ConfigFile .\pingpongman.conf` optionally replaces the embedded configuration.
-No adjacent config file is loaded automatically. Follow your organization's
-execution policy; no execution-policy changes are required by the program.
+**No `.conf` download is required.** The `Setting` block already includes all
+targets and explanatory comments from the optional `pingpongman.conf` example,
+including the Blackair and intentional failure examples.
+Only if you prefer a separate file, `-ConfigFile .\pingpongman.conf` explicitly
+replaces these embedded targets. No adjacent config file is loaded automatically.
+Follow your organization's execution policy; no execution-policy changes are
+required by the program.
 
 ## Requirements and Windows coverage
 

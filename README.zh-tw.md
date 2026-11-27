@@ -15,8 +15,10 @@
 從 [GitHub 倉庫](https://github.com/pichuang/pingpongman) 取得程式；
 已發布版本可在 [Releases](https://github.com/pichuang/pingpongman/releases) 查看。
 確認下載版本內的實際檔名：歷史版本仍可能使用舊名稱。
-使用者只需複製 **`pingpongman.ps1`** 到目的機器，
-編輯檔案開頭的 `$script:EmbeddedConfig` 目標清單，再從互動式 PowerShell 終端執行：
+使用者只需下載並複製 **[pingpongman.ps1](pingpongman.ps1)** 到目的機器。
+用文字編輯器開啟，搜尋 **`Setting`**，修改腳本參數後方
+`$script:EmbeddedConfig` 區塊內的目標列，儲存同一個檔案，
+再從互動式 PowerShell 終端執行：
 
 ```powershell
 .\pingpongman.ps1
@@ -25,7 +27,9 @@
 .\pingpongman.ps1 -Help
 ```
 
-如需獨立設定檔，可加上 `-ConfigFile .\pingpongman.conf`，取代內嵌目標。
+**不需要下載 `.conf`。** `Setting` 區塊已內含選用 `pingpongman.conf` 範例的完整目標與說明註解，
+包括 Blackair 成功範例與故意失敗的範例。
+只有偏好獨立設定檔時，才加上 `-ConfigFile .\pingpongman.conf`，明確取代內嵌目標。
 程式**不會**自動讀取同目錄的設定檔；不傳此參數就只使用內嵌內容。
 請遵循組織的執行原則，程式不要求變更 execution policy。
 
