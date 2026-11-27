@@ -53,8 +53,13 @@ blackair-https https://ifconfig.blackair.io/ip via=https port=443
     ) {
         param($Url, $Via, $Port, $Expected)
         $target = (Read-PingPongManConfig -Text "web $Url via=$Via port=$Port")[0]
-        $target.Address | Should -Be $Expected
-        ([Uri]$target.Address).Port | Should -Be $Port
+        $actualUri = [Uri]$target.Address
+        $expectedUri = [Uri]$Expected
+        $actualUri.Scheme | Should -Be $expectedUri.Scheme
+        $actualUri.Host | Should -Be $expectedUri.Host
+        $actualUri.Port | Should -Be $Port
+        $actualUri.PathAndQuery | Should -Be $expectedUri.PathAndQuery
+        $actualUri.Fragment | Should -Be $expectedUri.Fragment
     }
 
     It 'keeps duplicate display names independent and avoids case-insensitive log filename collisions' {
