@@ -4,11 +4,23 @@ Describe 'Single-file startup and portability' {
     It 'loads embedded targets with only the script present and no encoding side effects' {
         $copy = Join-Path $TestDrive 'standalone.ps1'
         Copy-Item -LiteralPath "$PSScriptRoot/../deadman.ps1" -Destination $copy
-        $encoding = [Console]::OutputEncoding
-        . $copy
-        $targets = Read-DeadmanConfig -Text $script:EmbeddedConfig
-        @($targets | Where-Object { $_ -is [PingTarget] }).Count | Should -BeGreaterThan 0
-        [Console]::OutputEncoding.CodePage | Should -Be $encoding.CodePage
+        $shell = [PowerShell]::Create()
+        try {
+            $null = $shell.AddScript({
+                param($Path)
+                $encoding = [Console]::OutputEncoding.CodePage
+                . $Path
+                $targets = Read-DeadmanConfig -Text $script:EmbeddedConfig
+                [pscustomobject]@{
+                    Count = @($targets | Where-Object { $_ -is [PingTarget] }).Count
+                    EncodingUnchanged = [Console]::OutputEncoding.CodePage -eq $encoding
+                }
+            }).AddArgument($copy)
+            $result = $shell.Invoke()
+            $shell.HadErrors | Should -BeFalse
+            $result[0].Count | Should -BeGreaterThan 0
+            $result[0].EncodingUnchanged | Should -BeTrue
+        } finally { $shell.Dispose() }
         Test-Path (Join-Path $TestDrive 'deadman.conf') | Should -BeFalse
     }
     It 'starts with embedded configuration when ConfigFile is omitted' {

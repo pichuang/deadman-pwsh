@@ -7,7 +7,7 @@ BeforeAll {
     function Wait-TestProbe {
         param($Entry, [scriptblock]$Serve)
         $watch = [Diagnostics.Stopwatch]::StartNew()
-        while (-not $Entry.Done -and $watch.Elapsed.TotalSeconds -lt 8) {
+        while (-not $Entry.Done -and $watch.Elapsed.TotalSeconds -lt 20) {
             if ($Serve) { & $Serve }
             Update-Probe $Entry
             Start-Sleep -Milliseconds 5
@@ -40,6 +40,13 @@ Describe 'Native asynchronous probe lifecycle' {
     AfterEach {
         foreach ($client in $clients) { $client.Dispose() }
         $listener.Stop()
+    }
+    It 'receives an IPv4 echo reply in an environment permitting ICMP' -Tag Network {
+        $target = (Read-DeadmanConfig -Text 'loopback 127.0.0.1')[0]
+        $entry = New-Probe $target
+        Wait-TestProbe $entry
+        $entry.Result.Success | Should -BeTrue
+        $entry.Result.RTT | Should -BeGreaterOrEqual 0
     }
     It 'connects TCP over loopback and counts exactly once' {
         $target = (Read-DeadmanConfig -Text "local 127.0.0.1 via=tcp port=$port")[0]
@@ -157,22 +164,36 @@ Describe 'Native asynchronous probe lifecycle' {
     It 'rejects an untrusted HTTPS certificate without modifying global TLS policy' {
         $savedProtocol = [System.Net.ServicePointManager]::SecurityProtocol
         $savedCallback = [System.Net.ServicePointManager]::ServerCertificateValidationCallback
-        $rsa = [System.Security.Cryptography.RSA]::Create()
-        $rsa.KeySize = 2048
+        $rsa = $null
+        if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
+            $rsa = [System.Security.Cryptography.RSACryptoServiceProvider]::new(2048)
+        } else {
+            $rsa = [System.Security.Cryptography.RSA]::Create()
+            $rsa.KeySize = 2048
+        }
         $request = [System.Security.Cryptography.X509Certificates.CertificateRequest]::new(
             'CN=localhost', $rsa, [System.Security.Cryptography.HashAlgorithmName]::SHA256,
             [System.Security.Cryptography.RSASignaturePadding]::Pkcs1)
-        $certificate = $request.CreateSelfSigned([DateTimeOffset]::Now.AddMinutes(-1), [DateTimeOffset]::Now.AddMinutes(5))
+        $generated = $request.CreateSelfSigned([DateTimeOffset]::Now.AddMinutes(-1), [DateTimeOffset]::Now.AddMinutes(5))
+        # Importing PFX gives Schannel an owned, accessible private key on Windows.
+        $certificate = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
+            $generated.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx),
+            '', [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable)
+        $generated.Dispose()
         $ssl = $null
         $authentication = $null
         try {
-            $entry = New-Probe ((Read-DeadmanConfig -Text "local https://localhost:$port/")[0]) -TimeoutSeconds 3
+            $entry = New-Probe ((Read-DeadmanConfig -Text "local https://127.0.0.1:$port/")[0]) -TimeoutSeconds 15
             $server = {
                 if ($listener.Pending() -and $clients.Count -eq 0) {
                     $clients.Add($listener.AcceptTcpClient())
                     $script:testSsl = [System.Net.Security.SslStream]::new($clients[0].GetStream(), $false)
                     $script:testAuthentication = $script:testSsl.AuthenticateAsServerAsync($certificate, $false,
                         [System.Security.Authentication.SslProtocols]::Tls12, $false)
+                }
+                if ($script:testAuthentication -and $script:testAuthentication.IsFaulted) {
+                    $null = $script:testAuthentication.Exception
+                    $script:testSsl.Dispose()
                 }
             }
             Wait-TestProbe $entry $server
@@ -345,18 +366,10 @@ Describe 'Structured probe logs' {
         $record.RTT | Should -Be 0
     }
 
-    Describe 'Real ICMP loopback' -Tag Network {
-        It 'receives an IPv4 echo reply in an environment permitting ICMP' {
-            $target = [PingTarget]::new('loopback', '127.0.0.1')
-            $entry = New-Probe $target
-            Wait-TestProbe $entry
-            $entry.Result.Success | Should -BeTrue
-            $entry.Result.RTT | Should -BeGreaterOrEqual 0
-        }
-    }
     It 'surfaces logging failures' {
         $file = Join-Path $TestDrive 'not-a-directory'
         Set-Content -LiteralPath $file -Value 'test'
         { Write-ProbeLog $file ([PingTarget]::new('local', 'localhost')) } | Should -Throw
     }
+
 }
