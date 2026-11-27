@@ -19,7 +19,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Get version from tag
         id: version
@@ -28,14 +28,15 @@ jobs:
       - name: Create release archive
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          ARCHIVE="deadman-pwsh-${VERSION}.zip"
+          ARCHIVE="pingpongman-${VERSION}.zip"
 
           # Create zip with essential files
           zip "${ARCHIVE}" \
-            deadman.ps1 \
-            deadman.conf \
+            pingpongman.ps1 \
+            pingpongman.conf \
             README.md \
-            README.zh-tw.md
+            README.zh-tw.md \
+            LICENSE
 
           echo "archive=${ARCHIVE}" >> "$GITHUB_ENV"
           echo "Created ${ARCHIVE}"
@@ -102,7 +103,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -125,32 +126,33 @@ jobs:
             const tag = context.ref.replace('refs/tags/', '');
 
             // Get commits since last tag
-            let body = `## deadman-pwsh ${tag}\n\n`;
+            let body = `## pingpongman ${tag}\n\n`;
             body += `### Release artifacts\n\n`;
             body += `| File | Description |\n`;
             body += `|------|-------------|\n`;
-            body += `| \`deadman-pwsh-${tag}.zip\` | Complete release archive |\n`;
+            body += `| \`pingpongman-${tag}.zip\` | Complete release archive |\n`;
             body += `| \`checksums-sha256.txt\` | SHA-256 checksums |\n\n`;
             body += `### Verification\n\n`;
             body += `\`\`\`bash\n`;
             body += `# Verify checksum\n`;
             body += `sha256sum -c checksums-sha256.txt\n\n`;
             body += `# Verify SLSA provenance (requires gh CLI)\n`;
-            body += `gh attestation verify deadman-pwsh-${tag}.zip -o pichuang\n`;
+            body += `gh attestation verify pingpongman-${tag}.zip -o pichuang\n`;
             body += `\`\`\`\n\n`;
             body += `### System Requirements\n\n`;
-            body += `- PowerShell 5.1+ (Windows PowerShell) or PowerShell 7+\n`;
-            body += `- Windows Server 2019 / 2022 / Windows 10 / Windows 11\n`;
-            body += `- For TCP ping on macOS/Linux: hping3 (requires sudo)\n`;
+            body += `- Windows PowerShell 5.1 with .NET Framework 4.7.2+ or an OS-supported PowerShell 7+ release\n`;
+            body += `- Interactive console; single-file ICMP/TCP/HTTP/HTTPS monitoring with no external runtime dependencies\n`;
+            body += `- Windows Server 2012/2016 and Windows 10/11 require manual console validation; Server 2012 needs WMF 5.1\n`;
+            body += `- PowerShell adaptation of https://github.com/upa/deadman (MIT); copyright and license included\n`;
             return body;
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
-          name: "deadman-pwsh ${{ github.ref_name }}"
+          name: "pingpongman ${{ github.ref_name }}"
           body: ${{ steps.notes.outputs.result }}
           files: |
-            deadman-pwsh-*.zip
+            pingpongman-*.zip
             checksums-sha256.txt
             *.sigstore.json
           fail_on_unmatched_files: true

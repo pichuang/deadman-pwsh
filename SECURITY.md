@@ -14,7 +14,7 @@ If you discover a security vulnerability in this project, please report it respo
 
 Instead, please use one of the following methods:
 
-1. **GitHub Private Vulnerability Reporting**: Use the [Security tab](https://github.com/pichuang/deadman-pwsh/security/advisories/new) to report a vulnerability privately.
+1. **GitHub Private Vulnerability Reporting**: Use the [Security tab](https://github.com/pichuang/pingpongman/security/advisories/new) to report a vulnerability privately.
 2. **Email**: Contact the maintainer directly.
 
 ### What to include
@@ -32,7 +32,8 @@ Instead, please use one of the following methods:
 
 ### Scope
 
-This project is a host monitoring tool using ICMP/TCP ping. Security concerns may include:
+pingpongman monitors hosts and services using ICMP, TCP, HTTP and HTTPS.
+Security concerns may include:
 
 - Command injection via configuration file parsing
 - Unintended code execution
@@ -42,6 +43,6 @@ This project is a host monitoring tool using ICMP/TCP ping. Security concerns ma
 ## Security Best Practices for Users
 
 - Run with least-privilege permissions
-- Use TCP ping (which requires elevated privileges) only when necessary
+- Ordinary TCP/HTTP probes do not require elevated privileges; ICMP permissions vary by host
 - Restrict access to configuration files and log directories
 - Review configuration files before use, especially from untrusted sources
