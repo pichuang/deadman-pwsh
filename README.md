@@ -60,7 +60,24 @@ then restored in `finally`.
 
 ## Targets
 
-The embedded block and optional UTF-8 config file use the **same strict parser**:
+The embedded block and optional example config include `ifconfig.blackair.io`
+as the representative successful endpoint for all four protocols:
+
+```text
+blackair-icmp  ifconfig.blackair.io
+blackair-tcp   ifconfig.blackair.io          via=tcp port=443
+blackair-http  http://ifconfig.blackair.io/
+blackair-https https://ifconfig.blackair.io/
+```
+
+On November 27, 2026, the development environment received an ICMP echo reply,
+connected to TCP port 443, and received final HTTP **200** responses over both
+HTTP and HTTPS with normal certificate validation. Public endpoint availability
+and your network's ICMP/TLS policies can differ; these examples are not a
+guarantee of success or an automated test dependency.
+
+The embedded block and optional UTF-8 config file use the **same strict parser**.
+Other syntax examples (replace endpoints for your environment):
 
 ```text
 # name        address                         options

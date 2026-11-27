@@ -40,6 +40,11 @@ $script:EmbeddedConfig = @'
 # name       address                       options
 localhost    127.0.0.1
 ---
+blackair-icmp  ifconfig.blackair.io
+blackair-tcp   ifconfig.blackair.io          via=tcp port=443
+blackair-http  http://ifconfig.blackair.io/
+blackair-https https://ifconfig.blackair.io/
+---
 # web-tcp    localhost                     via=tcp port=443
 # web-http   http://localhost/
 # web-https  https://localhost/
