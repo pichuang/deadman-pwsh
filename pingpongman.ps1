@@ -23,7 +23,7 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-# Only this file is required. Edit EmbeddedConfig below to choose your targets.
+# Only this file is required. Search for Setting below to edit your targets.
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)][string]$ConfigFile,
@@ -36,9 +36,13 @@ param(
     [Alias('h')][switch]$Help
 )
 
+# ==================== Setting ====================
+# Edit the targets below, save this file, then run it. No .conf file is needed.
+# An explicit -ConfigFile replaces these settings; no file is loaded by default.
 $script:EmbeddedConfig = @'
-# name       address                       options
-localhost    127.0.0.1
+# Format: name address [via=icmp|tcp|http|https] [port=number]
+localhost 127.0.0.1
+localhost-v6 ::1
 ---
 blackair-icmp  ifconfig.blackair.io
 blackair-tcp   ifconfig.blackair.io          via=tcp port=443
@@ -47,15 +51,17 @@ blackair-https https://ifconfig.blackair.io/ via=https port=443
 blackair-https https://ifconfig.blackair.io/ip via=https port=443
 ---
 # Intentional DNS failure: replace the reserved .invalid hostname to fix.
-fail-dns     no-such-host.invalid
+fail-dns no-such-host.invalid
 # Intentional wrong port: expect refusal/timeout unless a service uses port 81.
 # Fix by using the service's actual port (443 for the successful TCP sample).
-fail-port    ifconfig.blackair.io           via=tcp port=81
+fail-port ifconfig.blackair.io via=tcp port=81
 ---
-# web-tcp    localhost                     via=tcp port=443
-# web-http   http://localhost/
-# web-https  https://localhost/
+# Uncomment and replace these endpoints for your environment.
+# database db.example.com via=tcp port=1433
+# health http://localhost:8080/health
+# website https://example.com/
 '@
+# ================== End Setting ==================
 
 Add-Type -AssemblyName System.Net.Http -ErrorAction Stop
 
@@ -648,7 +654,7 @@ Ported from https://github.com/upa/deadman (MIT).
 Usage: .\pingpongman.ps1 [-ConfigFile path] [-AsyncMode] [-Scale 10]
                      [-Interval 1] [-Timeout 3] [-LogDir path] [-BlinkArrow]
 
-No config file is needed: edit EmbeddedConfig in this script.
+No config file is needed: search for Setting near the top and edit its targets.
 Config: name address [via=icmp|tcp|http|https] [port=1..65535]
 TCP requires via=tcp port=number. HTTP/HTTPS require an absolute URL.
 HTTP/HTTPS port= is optional; it must agree with an explicit URL port.
