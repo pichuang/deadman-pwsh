@@ -73,7 +73,7 @@ jobs:
               message = @{ text = $r.Message }
               locations = @(@{
                 physicalLocation = @{
-                  artifactLocation = @{ uri = ($r.ScriptPath -replace '\\','/') -replace '^.*/deadman-pwsh/', '' }
+                  artifactLocation = @{ uri = ($r.ScriptPath -replace '\\','/') -replace '^.*/pingpongman/', '' }
                   region = @{ startLine = [Math]::Max(1, [int]$r.Line); startColumn = [Math]::Max(1, [int]$r.Column) }
                 }
               })

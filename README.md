@@ -1,27 +1,29 @@
-# Deadman (PowerShell edition)
+# pingpongman
 
-[![CI](https://github.com/pichuang/deadman-pwsh/actions/workflows/ci.yml/badge.svg)](https://github.com/pichuang/deadman-pwsh/actions/workflows/ci.yml)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/pichuang/deadman-pwsh/badge)](https://scorecard.dev/viewer/?uri=github.com/pichuang/deadman-pwsh)
+[![CI](https://github.com/pichuang/pingpongman/actions/workflows/ci.yml/badge.svg)](https://github.com/pichuang/pingpongman/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/pichuang/pingpongman/badge)](https://scorecard.dev/viewer/?uri=github.com/pichuang/pingpongman)
 
 Real-time ICMP, TCP, HTTP and HTTPS monitoring in **one PowerShell file**.
 Ported from [upa/deadman](https://github.com/upa/deadman), MIT licensed.
 Uses built-in PowerShell commands and system .NET APIs only: no modules,
 external executables, compiled helpers, jobs or third-party runtime dependencies.
 
+[Traditional Chinese documentation](README.zh-tw.md)
+
 ## Quick start
 
-Copy **only `deadman.ps1`** to the destination machine. Edit the
+Copy **only `pingpongman.ps1`** to the destination machine. Edit the
 `$script:EmbeddedConfig` block near the top to choose targets, then run in an
 interactive PowerShell console:
 
 ```powershell
-.\deadman.ps1
-.\deadman.ps1 -AsyncMode
-.\deadman.ps1 -Interval 1 -Timeout 3 -Scale 20 -LogDir .\logs
-.\deadman.ps1 -Help
+.\pingpongman.ps1
+.\pingpongman.ps1 -AsyncMode
+.\pingpongman.ps1 -Interval 1 -Timeout 3 -Scale 20 -LogDir .\logs
+.\pingpongman.ps1 -Help
 ```
 
-`-ConfigFile .\deadman.conf` optionally replaces the embedded configuration.
+`-ConfigFile .\pingpongman.conf` optionally replaces the embedded configuration.
 No adjacent config file is loaded automatically. Follow your organization's
 execution policy; no execution-policy changes are required by the program.
 
@@ -60,7 +62,54 @@ then restored in `finally`.
 
 ## Targets
 
-The embedded block and optional UTF-8 config file use the **same strict parser**:
+The embedded block and optional example config include `ifconfig.blackair.io`
+as the representative successful endpoint for all four protocols:
+
+```text
+blackair-icmp  ifconfig.blackair.io
+blackair-tcp   ifconfig.blackair.io          via=tcp port=443
+blackair-http  http://ifconfig.blackair.io/
+blackair-https https://ifconfig.blackair.io/
+```
+
+On November 27, 2026, the development environment received an ICMP echo reply,
+connected to TCP port 443, and received final HTTP **200** responses over both
+HTTP and HTTPS with normal certificate validation. Public endpoint availability
+and your network's ICMP/TLS policies can differ; these examples are not a
+guarantee of success or an automated test dependency.
+
+### Intentional failure examples
+
+The embedded and optional example configurations also enable these targets so
+you can compare successful probes with runtime failures:
+
+```text
+fail-dns  no-such-host.invalid
+fail-port ifconfig.blackair.io via=tcp port=81
+```
+
+| Target | Expected cause | How to fix |
+|---|---|---|
+| `fail-dns` | `.invalid` is reserved for invalid names; ordinary DNS resolution fails | Replace with a real hostname, such as `ifconfig.blackair.io`; check DNS configuration if a real name also fails |
+| `fail-port` | Port 81 is intentionally different from the working TCP sample's port 443; a closed port refuses connections, while a firewall may cause a timeout | Use the actual service port, such as 443; check the listener, route and firewall |
+
+The development environment observed a name-resolution error and a timeout,
+respectively, on November 27, 2026. A public port is not guaranteed to stay closed;
+if a service opens on port 81, that example can succeed. Failure detail depends
+on the operating system and network. These targets show failures (`X`) without
+preventing other targets from being monitored; remove/comment them after trying
+the demo.
+
+Runtime failures are different from **invalid configuration**. For example,
+`bad-port localhost via=tcp port=70000` or `bad-url https:///` causes startup to
+stop with a source/line error. Such parser-invalid examples are not enabled in
+the sample configurations. Correct the port to 1..65535 or supply an absolute
+HTTP/HTTPS URL before starting again.
+
+### Configuration syntax
+
+The embedded block and optional UTF-8 config file use the **same strict parser**.
+Other syntax examples (replace endpoints for your environment):
 
 ```text
 # name        address                         options
@@ -173,8 +222,8 @@ Pester and PSScriptAnalyzer are **development-only** dependencies:
 Install-Module Pester -MinimumVersion 5.0 -Scope CurrentUser
 Install-Module PSScriptAnalyzer -Scope CurrentUser
 Invoke-Pester ./tests/ -Output Detailed -ExcludeTag Network
-Invoke-ScriptAnalyzer ./deadman.ps1 -Severity Error,Warning -ExcludeRule PSAvoidUsingWriteHost
-Invoke-ScriptAnalyzer ./deadman.ps1 -Settings @{
+Invoke-ScriptAnalyzer ./pingpongman.ps1 -Severity Error,Warning -ExcludeRule PSAvoidUsingWriteHost
+Invoke-ScriptAnalyzer ./pingpongman.ps1 -Settings @{
     IncludeRules = @('PSUseCompatibleSyntax')
     Rules = @{ PSUseCompatibleSyntax = @{ Enable = $true; TargetVersions = @('5.1') } }
 }
@@ -195,7 +244,34 @@ this coverage from the CI runner names.
 CI retains Windows Server 2022/2025 x PowerShell 5.1/7. Actions are SHA-pinned.
 Development delivery uses `develop` -> PR to protected `main`, requires the
 configured CI checks and review, and never bypasses protection.
-Release archives may include optional config/docs, but users need only the script.
+Release archives include the script, optional config/docs and MIT license.
+Users need only the script, which includes the copyright and license notice.
+
+## Provenance and change history
+
+pingpongman is the PowerShell adaptation formerly named **deadman-pwsh**.
+It is not a rename of the original Python project.
+
+- **Original Python project:** [upa/deadman](https://github.com/upa/deadman),
+  designed for Interop Tokyo ShowNet by the ShowNet NOC team. Its
+  [commit history](https://github.com/upa/deadman/commits/master/) and
+  [MIT license](https://github.com/upa/deadman/blob/master/LICENSE) remain upstream.
+- **PowerShell adaptation:** began with
+  [6c5286d](https://github.com/pichuang/pingpongman/commit/6c5286d) on 2026-03-30;
+  [c8c0498](https://github.com/pichuang/pingpongman/commit/c8c0498) consolidated
+  the program into one script on 2026-03-31.
+- **Four-protocol rewrite:** [6120b68](https://github.com/pichuang/pingpongman/commit/6120b68)
+  added HTTP/HTTPS, strict configuration, independent task deadlines, numeric
+  ASCII history and target-list scrolling on 2026-11-27.
+- **pingpongman rename:** the repository was renamed in place, retaining Git
+  commit IDs, issues and pull requests. The runtime entry points are now
+  `pingpongman.ps1` and optional `pingpongman.conf`; protocol behavior is unchanged.
+  Historical commits and published release assets retain their original
+  `deadman-pwsh` / `deadman.ps1` names rather than rewriting the past.
+
+See this adaptation's [full history](https://github.com/pichuang/pingpongman/commits/main/).
+Both the upstream copyright and existing PowerShell adaptation copyright are
+preserved in [LICENSE](LICENSE) and in the distributable script.
 
 ## License and acknowledgements
 

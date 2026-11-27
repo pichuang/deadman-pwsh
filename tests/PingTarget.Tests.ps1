@@ -1,7 +1,7 @@
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', '', Justification = 'Pester BeforeEach variables are consumed in It blocks.')]
 param()
 
-BeforeAll { . "$PSScriptRoot/../deadman.ps1" }
+BeforeAll { . "$PSScriptRoot/../pingpongman.ps1" }
 
 Describe 'Target statistics' {
     BeforeEach { $target = [PingTarget]::new('local', '127.0.0.1') }

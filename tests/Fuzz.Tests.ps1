@@ -1,4 +1,4 @@
-BeforeAll { . "$PSScriptRoot/../deadman.ps1" }
+BeforeAll { . "$PSScriptRoot/../pingpongman.ps1" }
 
 Describe 'Fuzz: strict configuration and bounded state' -Tag Fuzz {
     It 'parses 1000 deterministic valid targets without losing rows' {
@@ -6,20 +6,20 @@ Describe 'Fuzz: strict configuration and bounded state' -Tag Fuzz {
         $lines = 1..1000 | ForEach-Object {
             "host$_ 10.$($random.Next(0,256)).$($random.Next(0,256)).$($random.Next(1,255))"
         }
-        $targets = Read-DeadmanConfig -Text ($lines -join "`n")
+        $targets = Read-PingPongManConfig -Text ($lines -join "`n")
         $targets.Count | Should -Be 1000
     }
     It 'rejects generated unknown options rather than silently accepting them' {
         $random = [Random]::new(123)
         1..100 | ForEach-Object {
             $option = "unknown$($random.Next())=value"
-            { Read-DeadmanConfig -Text "host localhost $option" } | Should -Throw '*Unsupported option*'
+            { Read-PingPongManConfig -Text "host localhost $option" } | Should -Throw '*Unsupported option*'
         }
     }
     It 'rejects control and non-ASCII input before console or log rendering' {
         foreach ($code in @(0, 1, 27, 31, 127, 233, 0x4e2d)) {
             $text = "host$([char]$code) localhost"
-            { Read-DeadmanConfig -Text $text } | Should -Throw '*ASCII*'
+            { Read-PingPongManConfig -Text $text } | Should -Throw '*ASCII*'
         }
     }
     It 'bounds history and loss statistics after many mixed results' {

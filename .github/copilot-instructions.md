@@ -1,13 +1,13 @@
-# Copilot Instructions — deadman-pwsh
+# Copilot Instructions — pingpongman
 
 ## Project Overview
 
 A real-time ICMP/TCP/HTTP/HTTPS monitoring tool with an ASCII English terminal UI, built in PowerShell.
-Ported from [upa/deadman](https://github.com/upa/deadman) (Python). Single-file architecture (`deadman.ps1`).
+Ported from [upa/deadman](https://github.com/upa/deadman) (Python). Single-file architecture (`pingpongman.ps1`).
 
 ## Architecture
 
-- **Single-file design**: All classes (`PingTarget`, `PingResult`, `ConsoleUI`, `Separator`), config parser (`Read-DeadmanConfig`), and main loop are in `deadman.ps1`
+- **Single-file design**: All classes (`PingTarget`, `PingResult`, `ConsoleUI`, `Separator`), config parser (`Read-PingPongManConfig`), and main loop are in `pingpongman.ps1`
 - **Dot-source guard**: `if ($MyInvocation.InvocationName -ne '.')` prevents main loop execution when tests dot-source the file
 - **Runtime dependencies**: Built-in cmdlets and system .NET APIs only. No external executables, jobs, ThreadJob, compiled helper code or runtime modules. `Add-Type -AssemblyName System.Net.Http` loads a system assembly, not source code.
 - **Configuration**: Editable embedded targets are the default; optional `-ConfigFile` uses the same strict parser. Unknown/unsupported options must error with source and line context.
@@ -89,7 +89,8 @@ Two separate jobs (not matrix with `shell:`) because GitHub Actions `shell:` doe
 - Tag format: `yyyymmdd` (e.g., `20260419`)
 - Build → Provenance → Release (3 jobs)
 - SLSA provenance via `actions/attest-build-provenance` → `.sigstore.json` attached as release asset
-- Archive contains only: `deadman.ps1`, `deadman.conf`, `README.md`, `README.zh-tw.md`
+- Archive contains: `pingpongman.ps1`, `pingpongman.conf`, `README.md`, `README.zh-tw.md`, `LICENSE`
+- Preserve upstream `upa/deadman` attribution and historical names in provenance/history; do not rewrite Git history or rename upstream links.
 
 ## Branch & PR Workflow
 
@@ -120,7 +121,7 @@ Two separate jobs (not matrix with `shell:`) because GitHub Actions `shell:` doe
 
 ## OpenSSF Scorecard
 
-Target: maximize score on [scorecard.dev](https://scorecard.dev/viewer/?uri=github.com/pichuang/deadman-pwsh).
+Target: maximize score on [scorecard.dev](https://scorecard.dev/viewer/?uri=github.com/pichuang/pingpongman).
 
 ### Checks and status
 
@@ -154,8 +155,8 @@ Target: maximize score on [scorecard.dev](https://scorecard.dev/viewer/?uri=gith
 
 | File | Purpose |
 |------|---------|
-| `deadman.ps1` | Self-contained program with embedded targets |
-| `deadman.conf` | Example config (tab/space delimited) |
+| `pingpongman.ps1` | Self-contained program with embedded targets |
+| `pingpongman.conf` | Example config (tab/space delimited) |
 | `SECURITY.md` | Vulnerability reporting policy |
 | `LICENSE` | MIT License |
 | `.github/CODEOWNERS` | `* @pichuang` |
