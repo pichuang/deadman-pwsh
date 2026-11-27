@@ -68,13 +68,14 @@ as the representative successful endpoint for all four protocols:
 ```text
 blackair-icmp  ifconfig.blackair.io
 blackair-tcp   ifconfig.blackair.io          via=tcp port=443
-blackair-http  http://ifconfig.blackair.io/
-blackair-https https://ifconfig.blackair.io/
+blackair-http  http://ifconfig.blackair.io/ via=http port=80
+blackair-https https://ifconfig.blackair.io/ via=https port=443
+blackair-https https://ifconfig.blackair.io/ip via=https port=443
 ```
 
 On November 27, 2026, the development environment received an ICMP echo reply,
 connected to TCP port 443, and received final HTTP **200** responses over both
-HTTP and HTTPS with normal certificate validation. Public endpoint availability
+HTTP and HTTPS (including `/ip`) with normal certificate validation. Public endpoint availability
 and your network's ICMP/TLS policies can differ; these examples are not a
 guarantee of success or an automated test dependency.
 
@@ -123,14 +124,20 @@ website       https://example.com/              via=https
 ```
 
 - Space or tab delimited: `name address [via=protocol] [port=number]`.
-- Names must be unique (case-insensitive), 1..64 ASCII letters, digits, `_`, `-`
-  or `.`, beginning with a letter/digit. Trailing dots, Windows device names
-  and path characters are rejected so names are safe log filenames.
+- Names are display labels and may repeat: each row has independent probes,
+  statistics and history, including the two `blackair-https` URLs above.
+  Use 1..64 ASCII letters, digits, `_`, `-` or `.`, beginning with a letter/digit.
+  Trailing dots, Windows device names and path characters are rejected so names
+  are safe log filenames.
 - ICMP is the default for hostnames and IPv4/IPv6 literals. TCP requires
   `via=tcp port=1..65535`. TCP is a full connect check, not a raw SYN probe.
 - An absolute `http://` or `https://` URL selects HTTP/HTTPS automatically.
-  An explicit `via=http`/`via=https` must match the URL scheme. Put HTTP ports
-  in the URL. IPv6 URLs use brackets, for example `http://[::1]:8080/`.
+  An explicit `via=http`/`via=https` must match the URL scheme. Set HTTP ports
+  in the URL or with `port=1..65535`. Without an explicit URL port, the option
+  sets the request port; if both specify a port, they must agree, even when the
+  URL explicitly uses its default port. Conflicts fail with source/line context.
+  Paths, queries and fragments are preserved. IPv6 URLs use brackets, for
+  example `http://[::1]:8080/`.
   Credentials embedded in URLs are rejected.
 - `---` (three or more hyphens) adds a group separator, which counts as a
   viewport row. Blank lines and full-line `#` comments are ignored.
@@ -206,11 +213,16 @@ With `-Scale 10`, 0..<10 ms is `1`, 10..<20 is `2`, and 70+ is `8`.
 | `-Timeout` | 3 | Per-probe deadline, 0.01..86400 seconds |
 | `-AsyncMode`, `-a` | Off | Concurrent probes |
 | `-BlinkArrow`, `-b` | Off | Blink pending probe markers |
-| `-LogDir`, `-l` | None | Append per-target `<name>.jsonl` logs |
+| `-LogDir`, `-l` | None | Append per-target JSONL logs; duplicate labels get separate filenames |
 | `-Help`, `-h` | Off | Show help (`--help` is also accepted) |
 
 Each JSON log line contains a timestamp with UTC offset, target name/address,
 protocol, success, RTT, average, sends, losses, HTTP status and failure detail.
+The first occurrence of a name uses `<name>.jsonl`; duplicates get `-2`, `-3`,
+etc. in configuration order, skipping names already used by any configured
+label (case-insensitive). The two HTTPS samples therefore use
+`blackair-https.jsonl` and `blackair-https-2.jsonl`, without mixing records.
+Keep configuration order stable when appending across runs.
 Log write failures stop monitoring with an error rather than silently losing
 data. Logs can contain internal addresses/URLs; protect them appropriately.
 
@@ -242,8 +254,9 @@ Record the exact OS, PowerShell/.NET versions and console host; do not infer
 this coverage from the CI runner names.
 
 CI retains Windows Server 2022/2025 x PowerShell 5.1/7. Actions are SHA-pinned.
-Development delivery uses `develop` -> PR to protected `main`, requires the
-configured CI checks and review, and never bypasses protection.
+Development delivery uses `develop` -> PR to protected `main` and requires the
+four configured Windows CI checks. A review is currently optional for solo
+development; verify live protection settings before merging and never bypass them.
 Release archives include the script, optional config/docs and MIT license.
 Users need only the script, which includes the copyright and license notice.
 

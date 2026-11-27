@@ -42,8 +42,9 @@ localhost    127.0.0.1
 ---
 blackair-icmp  ifconfig.blackair.io
 blackair-tcp   ifconfig.blackair.io          via=tcp port=443
-blackair-http  http://ifconfig.blackair.io/
-blackair-https https://ifconfig.blackair.io/
+blackair-http  http://ifconfig.blackair.io/ via=http port=80
+blackair-https https://ifconfig.blackair.io/ via=https port=443
+blackair-https https://ifconfig.blackair.io/ip via=https port=443
 ---
 # Intentional DNS failure: replace the reserved .invalid hostname to fix.
 fail-dns     no-such-host.invalid
@@ -80,6 +81,7 @@ class Separator {}
 
 class PingTarget {
     [string]$Name
+    [string]$LogName
     [string]$Address
     [string]$Protocol = 'icmp'
     [int]$TcpPort = 0
@@ -101,6 +103,7 @@ class PingTarget {
 
     PingTarget([string]$name, [string]$address) {
         $this.Name = $name
+        $this.LogName = $name
         $this.Address = $address
         $this.ResultHistory = [System.Collections.Generic.List[string]]::new()
     }
@@ -178,7 +181,6 @@ function Read-PingPongManConfig {
             $name.EndsWith('.') -or $name -match '^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)') {
             throw "${context}: Invalid target name '$name' (use a safe filename, 1..64 ASCII characters)."
         }
-        if ($names.ContainsKey($name)) { throw "${context}: Duplicate target name '$name'." }
         $names[$name] = $true
         $options = @{}
         for ($index = 2; $index -lt $parts.Count; $index++) {
@@ -207,7 +209,21 @@ function Read-PingPongManConfig {
                 $uri.Port -lt 1 -or $uri.Port -gt 65535 -or $address -notmatch '^https?://') {
                 throw "${context}: Expected an absolute $protocol URL without credentials and with a valid port."
             }
-            if ($options.ContainsKey('port')) { throw "${context}: Put the HTTP port in the URL, not port=." }
+            if ($options.ContainsKey('port')) {
+                $port = 0
+                if (-not [int]::TryParse($options.port, [ref]$port) -or $port -lt 1 -or $port -gt 65535) {
+                    throw "${context}: HTTP/HTTPS requires port=1..65535 when specified."
+                }
+                $authority = ($address -split '://', 2)[1] -split '[/?#]', 2
+                if ($authority[0] -match ':\d+$' -and $uri.Port -ne $port) {
+                    throw "${context}: port=$port conflicts with the explicit URL port $($uri.Port)."
+                }
+                if ($uri.Port -ne $port) {
+                    $builder = [UriBuilder]::new($uri)
+                    $builder.Port = $port
+                    $target.Address = $builder.Uri.AbsoluteUri
+                }
+            }
         } else {
             $ip = $null
             $isIp = [System.Net.IPAddress]::TryParse($address, [ref]$ip)
@@ -222,12 +238,28 @@ function Read-PingPongManConfig {
                     $port -lt 1 -or $port -gt 65535) { throw "${context}: TCP requires port=1..65535." }
                 $target.TcpPort = $port
             } elseif ($options.ContainsKey('port')) {
-                throw "${context}: port= requires via=tcp."
+                throw "${context}: port= requires TCP or an HTTP/HTTPS URL."
             }
         }
         $targets.Add($target)
     }
     if ($names.Count -eq 0) { throw "${source}: No monitoring targets configured." }
+    # Reserve original names so a duplicate suffix cannot steal another row's log.
+    $logNames = @{}
+    foreach ($name in $names.Keys) { $logNames[$name] = $true }
+    $seenNames = @{}
+    foreach ($target in $targets) {
+        if ($target -isnot [PingTarget]) { continue }
+        $name = $target.Name
+        if (-not $seenNames.ContainsKey($name)) { $seenNames[$name] = $true; continue }
+        $suffix = 2
+        do {
+            $candidate = "$name-$suffix"
+            $suffix++
+        } while ($logNames.ContainsKey($candidate))
+        $target.LogName = $candidate
+        $logNames[$candidate] = $true
+    }
     return ,$targets
 }
 
@@ -475,7 +507,7 @@ function Write-ProbeLog {
         Average = $Target.Average; Sent = $Target.Sent; Loss = $Target.Loss
         StatusCode = $Target.StatusCode; Detail = $Target.Detail
     }
-    $record | ConvertTo-Json -Compress | Add-Content -LiteralPath (Join-Path $Directory "$($Target.Name).jsonl") -Encoding UTF8 -ErrorAction Stop
+    $record | ConvertTo-Json -Compress | Add-Content -LiteralPath (Join-Path $Directory "$($Target.LogName).jsonl") -Encoding UTF8 -ErrorAction Stop
 }
 
 function New-MonitorState {
@@ -619,10 +651,12 @@ Usage: .\pingpongman.ps1 [-ConfigFile path] [-AsyncMode] [-Scale 10]
 No config file is needed: edit EmbeddedConfig in this script.
 Config: name address [via=icmp|tcp|http|https] [port=1..65535]
 TCP requires via=tcp port=number. HTTP/HTTPS require an absolute URL.
+HTTP/HTTPS port= is optional; it must agree with an explicit URL port.
+Display names may repeat; each row keeps independent statistics and logs.
 Examples:
   loopback 127.0.0.1
   service  localhost via=tcp port=443
-  website  https://example.com/health
+  website  https://example.com/health via=https port=443
   ---
 Only ASCII names/UI are supported. # starts a full-line comment.
 Use ; # for a trailing comment. Unknown/unsupported options are errors.

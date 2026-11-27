@@ -96,11 +96,11 @@ Two separate jobs (not matrix with `shell:`) because GitHub Actions `shell:` doe
 
 - **Default branch**: `main` (protected)
 - **Development branch**: `develop`
-- **Flow**: develop → PR → CI passes → approve → merge to main
+- **Flow**: develop → PR → required CI passes → merge to main when authorized
 - **Branch protection (main)**:
-  - 1 required review (CODEOWNERS enforced)
+  - No required review for the current solo-development workflow; confirm live settings before merging
   - 4 required status checks (win-2022/2025 × PS 5.1/7)
-  - Dismiss stale reviews, no force push, conversation resolution required
+  - No force push or branch deletion; conversation resolution required
 - **CODEOWNERS**: `@pichuang` for all files
 - **PR auto-assign**: `pr-assign.yml` sets assignee to `pichuang`, requests CODEOWNERS review (skips if author = owner)
 
@@ -115,9 +115,9 @@ Two separate jobs (not matrix with `shell:`) because GitHub Actions `shell:` doe
   ```
 - After committing on local `develop`, push to `origin/develop`
 - **After every successful push to `origin/develop`**, Copilot agents must automatically create a PR targeting `main` (if no open PR from `develop` → `main` already exists)
-- The PR must pass all CI checks and receive at least one approval before merging to `main`
+- The PR must pass all required CI checks before merging to `main`; honor any review requirements if live protection settings change
 - Copilot agents must verify the current branch is `develop` (not `main`) before making any code changes
-- App-managed worktree sessions stay on their dedicated branch; do not switch or edit the primary checkout. An explicitly authorized delivery may fast-forward `origin/develop` from the worktree without force-pushing. Open PRs only when requested; never merge without explicit authorization and required reviews.
+- App-managed worktree sessions stay on their dedicated branch; do not switch or edit the primary checkout. An explicitly authorized delivery may fast-forward `origin/develop` from the worktree without force-pushing. Open PRs only when requested; never merge without explicit authorization and satisfying current branch protections.
 
 ## OpenSSF Scorecard
 
