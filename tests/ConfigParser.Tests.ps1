@@ -1,12 +1,12 @@
-BeforeAll { . "$PSScriptRoot/../deadman.ps1" }
+BeforeAll { . "$PSScriptRoot/../pingpongman.ps1" }
 
 Describe 'Strict configuration parser' {
     It 'shares one parser for embedded text and optional files' {
         $text = "# comment`nlocal`t127.0.0.1`n---`ntcp ::1 via=tcp port=443`nhttp http://localhost:8080/a?x=1#fragment`nhttps https://example.com/ via=https ; # note"
         $path = Join-Path $TestDrive 'targets.conf'
         Set-Content -LiteralPath $path -Value $text -Encoding UTF8
-        $fromText = Read-DeadmanConfig -Text $text -RttScale 20
-        $fromFile = Read-DeadmanConfig -Path $path -RttScale 20
+        $fromText = Read-PingPongManConfig -Text $text -RttScale 20
+        $fromFile = Read-PingPongManConfig -Path $path -RttScale 20
         $fromText.Count | Should -Be 5
         $fromFile.Count | Should -Be 5
         ($fromText[1] -is [Separator]) | Should -BeTrue
@@ -21,7 +21,7 @@ Describe 'Strict configuration parser' {
     }
 
     It 'keeps the existing ICMP and via=tcp syntax' {
-        $targets = Read-DeadmanConfig -Text "dns 8.8.8.8`nv6 2001:db8::1`nservice localhost via=tcp port=65535"
+        $targets = Read-PingPongManConfig -Text "dns 8.8.8.8`nv6 2001:db8::1`nservice localhost via=tcp port=65535"
         $targets[0].Protocol | Should -Be 'icmp'
         $targets[1].Address | Should -Be '2001:db8::1'
         $targets[2].TcpPort | Should -Be 65535
@@ -60,20 +60,20 @@ Describe 'Strict configuration parser' {
     ) {
         param($Line)
         $text = "# header`n$Line"
-        { Read-DeadmanConfig -Text $text } | Should -Throw '*EmbeddedConfig:2:*'
+        { Read-PingPongManConfig -Text $text } | Should -Throw '*EmbeddedConfig:2:*'
     }
 
     It 'rejects duplicates and configurations with no real targets' {
-        { Read-DeadmanConfig -Text "same localhost`nSAME ::1" } | Should -Throw '*Duplicate target name*'
+        { Read-PingPongManConfig -Text "same localhost`nSAME ::1" } | Should -Throw '*Duplicate target name*'
         foreach ($text in @('', '# comment', "---`n---")) {
-            { Read-DeadmanConfig -Text $text } | Should -Throw '*No monitoring targets*'
+            { Read-PingPongManConfig -Text $text } | Should -Throw '*No monitoring targets*'
         }
     }
 
     It 'reports external file context and missing files as errors' {
         $path = Join-Path $TestDrive 'bad.conf'
         Set-Content -LiteralPath $path -Value "# comment`nhost localhost via=ssh"
-        { Read-DeadmanConfig -Path $path } | Should -Throw '*bad.conf:2:*'
-        { Read-DeadmanConfig -Path (Join-Path $TestDrive 'missing.conf') } | Should -Throw
+        { Read-PingPongManConfig -Path $path } | Should -Throw '*bad.conf:2:*'
+        { Read-PingPongManConfig -Path (Join-Path $TestDrive 'missing.conf') } | Should -Throw
     }
 }

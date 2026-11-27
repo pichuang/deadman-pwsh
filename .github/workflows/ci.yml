@@ -40,8 +40,8 @@ jobs:
         shell: pwsh
         run: |
           Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
-          $results = @(Invoke-ScriptAnalyzer ./deadman.ps1 -Severity Error,Warning -ExcludeRule PSAvoidUsingWriteHost)
-          $results += @(Invoke-ScriptAnalyzer ./deadman.ps1 -Settings @{
+          $results = @(Invoke-ScriptAnalyzer ./pingpongman.ps1 -Severity Error,Warning -ExcludeRule PSAvoidUsingWriteHost)
+          $results += @(Invoke-ScriptAnalyzer ./pingpongman.ps1 -Settings @{
             IncludeRules = @('PSUseCompatibleSyntax')
             Rules = @{ PSUseCompatibleSyntax = @{ Enable = $true; TargetVersions = @('5.1') } }
           })

@@ -2,7 +2,7 @@
 param()
 
 BeforeAll {
-    . "$PSScriptRoot/../deadman.ps1"
+    . "$PSScriptRoot/../pingpongman.ps1"
 
     function Wait-TestProbe {
         param($Entry, [scriptblock]$Serve)
@@ -42,14 +42,14 @@ Describe 'Native asynchronous probe lifecycle' {
         $listener.Stop()
     }
     It 'receives an IPv4 echo reply in an environment permitting ICMP' -Tag Network {
-        $target = (Read-DeadmanConfig -Text 'loopback 127.0.0.1')[0]
+        $target = (Read-PingPongManConfig -Text 'loopback 127.0.0.1')[0]
         $entry = New-Probe $target
         Wait-TestProbe $entry
         $entry.Result.Success | Should -BeTrue
         $entry.Result.RTT | Should -BeGreaterOrEqual 0
     }
     It 'connects TCP over loopback and counts exactly once' {
-        $target = (Read-DeadmanConfig -Text "local 127.0.0.1 via=tcp port=$port")[0]
+        $target = (Read-PingPongManConfig -Text "local 127.0.0.1 via=tcp port=$port")[0]
         $entry = New-Probe $target
         Wait-TestProbe $entry
         $entry.Result.Success | Should -BeTrue
@@ -66,7 +66,7 @@ Describe 'Native asynchronous probe lifecycle' {
         @{ Status = 503; Expected = $false }
     ) {
         param($Status, $Expected)
-        $target = (Read-DeadmanConfig -Text "local http://127.0.0.1:$port/test")[0]
+        $target = (Read-PingPongManConfig -Text "local http://127.0.0.1:$port/test")[0]
         $entry = New-Probe $target -TimeoutSeconds 2
         $accepted = $listener.AcceptTcpClientAsync()
         $request = [System.Text.StringBuilder]::new()
@@ -96,7 +96,7 @@ Describe 'Native asynchronous probe lifecycle' {
         $target.Pending | Should -BeNullOrEmpty
     }
     It 'follows a redirect and measures through final headers' {
-        $entry = New-Probe ((Read-DeadmanConfig -Text "local http://127.0.0.1:$port/start")[0]) -TimeoutSeconds 3
+        $entry = New-Probe ((Read-PingPongManConfig -Text "local http://127.0.0.1:$port/start")[0]) -TimeoutSeconds 3
         $paths = [System.Collections.Generic.List[string]]::new()
         $server = {
             if ($listener.Pending()) {
@@ -130,7 +130,7 @@ Describe 'Native asynchronous probe lifecycle' {
         ($paths -join ',') | Should -Be '/start,/final'
     }
     It 'bounds redirect loops' {
-        $entry = New-Probe ((Read-DeadmanConfig -Text "local http://127.0.0.1:$port/loop")[0]) -TimeoutSeconds 3
+        $entry = New-Probe ((Read-PingPongManConfig -Text "local http://127.0.0.1:$port/loop")[0]) -TimeoutSeconds 3
         $requests = [System.Collections.Generic.List[string]]::new()
         $server = {
             if ($listener.Pending()) { $clients.Add($listener.AcceptTcpClient()) }
@@ -153,7 +153,7 @@ Describe 'Native asynchronous probe lifecycle' {
         else { $entry.Result.Detail | Should -Not -BeNullOrEmpty }
     }
     It 'times out an HTTP server that sends no headers and disposes resources' {
-        $target = (Read-DeadmanConfig -Text "local http://127.0.0.1:$port/")[0]
+        $target = (Read-PingPongManConfig -Text "local http://127.0.0.1:$port/")[0]
         $entry = New-Probe $target -TimeoutSeconds 0.15
         Wait-TestProbe $entry
         $entry.Result.Success | Should -BeFalse
@@ -183,7 +183,7 @@ Describe 'Native asynchronous probe lifecycle' {
         $ssl = $null
         $authentication = $null
         try {
-            $entry = New-Probe ((Read-DeadmanConfig -Text "local https://127.0.0.1:$port/")[0]) -TimeoutSeconds 15
+            $entry = New-Probe ((Read-PingPongManConfig -Text "local https://127.0.0.1:$port/")[0]) -TimeoutSeconds 15
             $server = {
                 if ($listener.Pending() -and $clients.Count -eq 0) {
                     $clients.Add($listener.AcceptTcpClient())
@@ -352,7 +352,7 @@ Describe 'Shared sequential and concurrent scheduler' {
 
 Describe 'Structured probe logs' {
     It 'records failure details and HTTP status in a safe per-target file' {
-        $target = (Read-DeadmanConfig -Text 'web https://example.com/')[0]
+        $target = (Read-PingPongManConfig -Text 'web https://example.com/')[0]
         $result = [PingResult]::new()
         $result.StatusCode = 503
         $result.Detail = 'HTTP 503'

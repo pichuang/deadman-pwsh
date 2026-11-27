@@ -1,7 +1,7 @@
-# Deadman (PowerShell edition)
+# pingpongman
 
-[![CI](https://github.com/pichuang/deadman-pwsh/actions/workflows/ci.yml/badge.svg)](https://github.com/pichuang/deadman-pwsh/actions/workflows/ci.yml)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/pichuang/deadman-pwsh/badge)](https://scorecard.dev/viewer/?uri=github.com/pichuang/deadman-pwsh)
+[![CI](https://github.com/pichuang/pingpongman/actions/workflows/ci.yml/badge.svg)](https://github.com/pichuang/pingpongman/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/pichuang/pingpongman/badge)](https://scorecard.dev/viewer/?uri=github.com/pichuang/pingpongman)
 
 Real-time ICMP, TCP, HTTP and HTTPS monitoring in **one PowerShell file**.
 Ported from [upa/deadman](https://github.com/upa/deadman), MIT licensed.
@@ -10,18 +10,18 @@ external executables, compiled helpers, jobs or third-party runtime dependencies
 
 ## Quick start
 
-Copy **only `deadman.ps1`** to the destination machine. Edit the
+Copy **only `pingpongman.ps1`** to the destination machine. Edit the
 `$script:EmbeddedConfig` block near the top to choose targets, then run in an
 interactive PowerShell console:
 
 ```powershell
-.\deadman.ps1
-.\deadman.ps1 -AsyncMode
-.\deadman.ps1 -Interval 1 -Timeout 3 -Scale 20 -LogDir .\logs
-.\deadman.ps1 -Help
+.\pingpongman.ps1
+.\pingpongman.ps1 -AsyncMode
+.\pingpongman.ps1 -Interval 1 -Timeout 3 -Scale 20 -LogDir .\logs
+.\pingpongman.ps1 -Help
 ```
 
-`-ConfigFile .\deadman.conf` optionally replaces the embedded configuration.
+`-ConfigFile .\pingpongman.conf` optionally replaces the embedded configuration.
 No adjacent config file is loaded automatically. Follow your organization's
 execution policy; no execution-policy changes are required by the program.
 
@@ -173,8 +173,8 @@ Pester and PSScriptAnalyzer are **development-only** dependencies:
 Install-Module Pester -MinimumVersion 5.0 -Scope CurrentUser
 Install-Module PSScriptAnalyzer -Scope CurrentUser
 Invoke-Pester ./tests/ -Output Detailed -ExcludeTag Network
-Invoke-ScriptAnalyzer ./deadman.ps1 -Severity Error,Warning -ExcludeRule PSAvoidUsingWriteHost
-Invoke-ScriptAnalyzer ./deadman.ps1 -Settings @{
+Invoke-ScriptAnalyzer ./pingpongman.ps1 -Severity Error,Warning -ExcludeRule PSAvoidUsingWriteHost
+Invoke-ScriptAnalyzer ./pingpongman.ps1 -Settings @{
     IncludeRules = @('PSUseCompatibleSyntax')
     Rules = @{ PSUseCompatibleSyntax = @{ Enable = $true; TargetVersions = @('5.1') } }
 }
@@ -195,7 +195,34 @@ this coverage from the CI runner names.
 CI retains Windows Server 2022/2025 x PowerShell 5.1/7. Actions are SHA-pinned.
 Development delivery uses `develop` -> PR to protected `main`, requires the
 configured CI checks and review, and never bypasses protection.
-Release archives may include optional config/docs, but users need only the script.
+Release archives include the script, optional config/docs and MIT license.
+Users need only the script, which includes the copyright and license notice.
+
+## Provenance and change history
+
+pingpongman is the PowerShell adaptation formerly named **deadman-pwsh**.
+It is not a rename of the original Python project.
+
+- **Original Python project:** [upa/deadman](https://github.com/upa/deadman),
+  designed for Interop Tokyo ShowNet by the ShowNet NOC team. Its
+  [commit history](https://github.com/upa/deadman/commits/master/) and
+  [MIT license](https://github.com/upa/deadman/blob/master/LICENSE) remain upstream.
+- **PowerShell adaptation:** began with
+  [6c5286d](https://github.com/pichuang/pingpongman/commit/6c5286d) on 2026-03-30;
+  [c8c0498](https://github.com/pichuang/pingpongman/commit/c8c0498) consolidated
+  the program into one script on 2026-03-31.
+- **Four-protocol rewrite:** [6120b68](https://github.com/pichuang/pingpongman/commit/6120b68)
+  added HTTP/HTTPS, strict configuration, independent task deadlines, numeric
+  ASCII history and target-list scrolling on 2026-11-27.
+- **pingpongman rename:** the repository was renamed in place, retaining Git
+  commit IDs, issues and pull requests. The runtime entry points are now
+  `pingpongman.ps1` and optional `pingpongman.conf`; protocol behavior is unchanged.
+  Historical commits and published release assets retain their original
+  `deadman-pwsh` / `deadman.ps1` names rather than rewriting the past.
+
+See this adaptation's [full history](https://github.com/pichuang/pingpongman/commits/main/).
+Both the upstream copyright and existing PowerShell adaptation copyright are
+preserved in [LICENSE](LICENSE) and in the distributable script.
 
 ## License and acknowledgements
 

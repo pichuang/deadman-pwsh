@@ -1,5 +1,28 @@
 #requires -Version 5.1
-# Deadman PowerShell edition. Ported from https://github.com/upa/deadman (MIT).
+# pingpongman - PowerShell adaptation of https://github.com/upa/deadman.
+#
+# MIT License
+#
+# Copyright (c) 2018  Interop Tokyo ShowNet NOC team
+# Copyright (c) 2024 Phil Huang (pichuang)
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
 # Only this file is required. Edit EmbeddedConfig below to choose your targets.
 [CmdletBinding()]
 param(
@@ -115,7 +138,7 @@ class PingTarget {
     }
 }
 
-function Read-DeadmanConfig {
+function Read-PingPongManConfig {
     [CmdletBinding(DefaultParameterSetName = 'File')]
     param(
         [Parameter(Mandatory, ParameterSetName = 'File')][string]$Path,
@@ -382,7 +405,7 @@ class ConsoleUI {
             while ($lines.Count -lt ($this.Height - 1)) { $lines.Add($this.Fit('')) }
             return $lines.ToArray()
         }
-        $lines.Add($this.Fit('Deadman - ICMP / TCP / HTTP / HTTPS'))
+        $lines.Add($this.Fit('pingpongman - ICMP / TCP / HTTP / HTTPS'))
         $lines.Add($this.Fit("Up/Down scroll targets | R reset | Q/Ctrl+C quit | Scale ${scale}ms"))
         $first = 0
         if ($targets.Count -gt 0) { $first = $this.Offset + 1 }
@@ -508,20 +531,20 @@ function Invoke-MonitorTick {
     }
 }
 
-function Test-DeadmanConsole {
+function Test-PingPongManConsole {
     if ([Console]::IsInputRedirected -or [Console]::IsOutputRedirected -or
         [Console]::WindowWidth -le 0 -or [Console]::WindowHeight -le 0) {
-        throw 'Deadman needs an interactive console. Run in powershell.exe or pwsh, not ISE or redirected input/output.'
+        throw 'pingpongman needs an interactive console. Run in powershell.exe or pwsh, not ISE or redirected input/output.'
     }
     try { $null = [Console]::KeyAvailable }
-    catch { throw 'Deadman needs an interactive console with keyboard input (not PowerShell ISE).' }
+    catch { throw 'pingpongman needs an interactive console with keyboard input (not PowerShell ISE).' }
 }
 
-function Start-Deadman {
+function Start-PingPongMan {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Interactive read-only monitoring loop.')]
     param([object[]]$Targets, [bool]$Concurrent, [double]$IntervalSeconds, [double]$TimeoutSeconds,
         [int]$RttScale, [string]$LogDirectory, [bool]$Blink)
-    Test-DeadmanConsole
+    Test-PingPongManConsole
     $ui = [ConsoleUI]::new()
     $original = @{
         CursorVisible = $null; ControlC = [Console]::TreatControlCAsInput
@@ -576,10 +599,10 @@ if ($MyInvocation.InvocationName -ne '.') {
     if ($ConfigFile -match '^--?(help|\?)$') { $Help = $true }
     if ($Help) {
         @'
-Deadman - single-file host monitor (PowerShell 5.1 / 7+)
+pingpongman - single-file host monitor (PowerShell 5.1 / 7+)
 Ported from https://github.com/upa/deadman (MIT).
 
-Usage: .\deadman.ps1 [-ConfigFile path] [-AsyncMode] [-Scale 10]
+Usage: .\pingpongman.ps1 [-ConfigFile path] [-AsyncMode] [-Scale 10]
                      [-Interval 1] [-Timeout 3] [-LogDir path] [-BlinkArrow]
 
 No config file is needed: edit EmbeddedConfig in this script.
@@ -603,9 +626,9 @@ No modules, external tools, jobs, or compiled helper code are required.
 '@
     } else {
         $targets = $null
-        if ($ConfigFile) { $targets = Read-DeadmanConfig -Path $ConfigFile -RttScale $Scale }
-        else { $targets = Read-DeadmanConfig -Text $script:EmbeddedConfig -RttScale $Scale }
-        Start-Deadman -Targets $targets.ToArray() -Concurrent $AsyncMode.IsPresent `
+        if ($ConfigFile) { $targets = Read-PingPongManConfig -Path $ConfigFile -RttScale $Scale }
+        else { $targets = Read-PingPongManConfig -Text $script:EmbeddedConfig -RttScale $Scale }
+        Start-PingPongMan -Targets $targets.ToArray() -Concurrent $AsyncMode.IsPresent `
             -IntervalSeconds $Interval -TimeoutSeconds $Timeout -RttScale $Scale `
             -LogDirectory $LogDir -Blink $BlinkArrow.IsPresent
     }
