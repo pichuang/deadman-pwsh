@@ -45,6 +45,12 @@ blackair-tcp   ifconfig.blackair.io          via=tcp port=443
 blackair-http  http://ifconfig.blackair.io/
 blackair-https https://ifconfig.blackair.io/
 ---
+# Intentional DNS failure: replace the reserved .invalid hostname to fix.
+fail-dns     no-such-host.invalid
+# Intentional wrong port: expect refusal/timeout unless a service uses port 81.
+# Fix by using the service's actual port (443 for the successful TCP sample).
+fail-port    ifconfig.blackair.io           via=tcp port=81
+---
 # web-tcp    localhost                     via=tcp port=443
 # web-http   http://localhost/
 # web-https  https://localhost/

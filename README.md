@@ -8,6 +8,8 @@ Ported from [upa/deadman](https://github.com/upa/deadman), MIT licensed.
 Uses built-in PowerShell commands and system .NET APIs only: no modules,
 external executables, compiled helpers, jobs or third-party runtime dependencies.
 
+[Traditional Chinese documentation](README.zh-tw.md)
+
 ## Quick start
 
 Copy **only `pingpongman.ps1`** to the destination machine. Edit the
@@ -75,6 +77,36 @@ connected to TCP port 443, and received final HTTP **200** responses over both
 HTTP and HTTPS with normal certificate validation. Public endpoint availability
 and your network's ICMP/TLS policies can differ; these examples are not a
 guarantee of success or an automated test dependency.
+
+### Intentional failure examples
+
+The embedded and optional example configurations also enable these targets so
+you can compare successful probes with runtime failures:
+
+```text
+fail-dns  no-such-host.invalid
+fail-port ifconfig.blackair.io via=tcp port=81
+```
+
+| Target | Expected cause | How to fix |
+|---|---|---|
+| `fail-dns` | `.invalid` is reserved for invalid names; ordinary DNS resolution fails | Replace with a real hostname, such as `ifconfig.blackair.io`; check DNS configuration if a real name also fails |
+| `fail-port` | Port 81 is intentionally different from the working TCP sample's port 443; a closed port refuses connections, while a firewall may cause a timeout | Use the actual service port, such as 443; check the listener, route and firewall |
+
+The development environment observed a name-resolution error and a timeout,
+respectively, on November 27, 2026. A public port is not guaranteed to stay closed;
+if a service opens on port 81, that example can succeed. Failure detail depends
+on the operating system and network. These targets show failures (`X`) without
+preventing other targets from being monitored; remove/comment them after trying
+the demo.
+
+Runtime failures are different from **invalid configuration**. For example,
+`bad-port localhost via=tcp port=70000` or `bad-url https:///` causes startup to
+stop with a source/line error. Such parser-invalid examples are not enabled in
+the sample configurations. Correct the port to 1..65535 or supply an absolute
+HTTP/HTTPS URL before starting again.
+
+### Configuration syntax
 
 The embedded block and optional UTF-8 config file use the **same strict parser**.
 Other syntax examples (replace endpoints for your environment):
