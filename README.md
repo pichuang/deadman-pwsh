@@ -1,240 +1,205 @@
-# Dead Man (PowerShell Edition)
+# Deadman (PowerShell edition)
 
 [![CI](https://github.com/pichuang/deadman-pwsh/actions/workflows/ci.yml/badge.svg)](https://github.com/pichuang/deadman-pwsh/actions/workflows/ci.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/pichuang/deadman-pwsh/badge)](https://scorecard.dev/viewer/?uri=github.com/pichuang/deadman-pwsh)
 
-> Ported from [upa/deadman](https://github.com/upa/deadman) (MIT License)
+Real-time ICMP, TCP, HTTP and HTTPS monitoring in **one PowerShell file**.
+Ported from [upa/deadman](https://github.com/upa/deadman), MIT licensed.
+Uses built-in PowerShell commands and system .NET APIs only: no modules,
+external executables, compiled helpers, jobs or third-party runtime dependencies.
 
-deadman is a host monitoring tool using ICMP Ping and TCP Ping. It checks whether hosts are alive via ICMP Echo or TCP SYN and displays results in real-time through a terminal UI.
+## Quick start
 
-This version is implemented in **PowerShell 5.1+** (recommended: PowerShell 7+), using the `System.Console` API for terminal rendering. Works on Windows, macOS, and Linux.
-
-## Features
-
-- 🔍 Real-time ping monitoring of multiple hosts
-- 📊 Unicode bar chart display for RTT history (▁▂▃▄▅▆▇█)
-- 🎨 Color-coded: green = alive, red = no response
-- ⚡ Supports both sync (sequential) and async (parallel) ping modes
-- � TCP ping support: `Test-NetConnection` on Windows, `hping3` on macOS/Linux
-- �📁 Configuration file format fully compatible with the original
-- 📝 Optional logging functionality
-- 🔄 Key interaction: `r` to reset statistics, `q` to quit
-- 📐 Automatic terminal size detection and redraw
-
-## Prerequisites
-
-- **PowerShell 5.1** or later (PowerShell 7+ recommended for best experience)
-  - Windows 10 / Windows Server 2016+: Windows PowerShell 5.1 is built-in
-  - Windows: `winget install Microsoft.PowerShell` (for PowerShell 7)
-  - macOS: `brew install powershell`
-  - Linux: See [official installation guide](https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell-on-linux)
-- Async mode uses `Start-ThreadJob` on PowerShell 7+ or `Start-Job` on PowerShell 5.1
-- TCP ping on macOS/Linux requires [hping3](https://github.com/antirez/hping) (`brew install hping` / `apt install hping3`)
-- TCP ping on macOS/Linux requires `sudo` (root privileges) to send raw packets: `sudo pwsh ./deadman.ps1 ...`
-- TCP ping on Windows uses the built-in `Test-NetConnection` cmdlet
-
-### Windows Compatibility
-
-| OS | PowerShell 5.1 | PowerShell 7+ |
-|----|:-:|:-:|
-| Windows Server 2019 | ✅ | ✅ |
-| Windows Server 2022 | ✅ | ✅ |
-| Windows 10 | ✅ | ✅ |
-| Windows 11 | ✅ | ✅ |
-
-### Terminal & Character Display
-
-- **Windows Terminal** (recommended): Full Unicode bar chart support (▁▂▃▄▅▆▇█), best visual experience
-- **conhost** (legacy console): Automatically falls back to ASCII characters (`_.:‐+=@#`) for RTT bar chart
-- To enable Unicode in conhost, run `chcp 65001` before executing the script, or use a font like **Cascadia Code**
-
-## Quick Start
+Copy **only `deadman.ps1`** to the destination machine. Edit the
+`$script:EmbeddedConfig` block near the top to choose targets, then run in an
+interactive PowerShell console:
 
 ```powershell
-# Clone the project
-git clone https://github.com/pichuang/deadman-pwsh.git
-cd deadman-pwsh
-
-# Start with default config file (sync mode)
-./deadman.ps1 -ConfigFile deadman.conf
-
-# Async mode (ping all targets simultaneously)
-./deadman.ps1 -ConfigFile deadman.conf -AsyncMode
-
-# Custom RTT scale at 20ms with logging enabled
-./deadman.ps1 -ConfigFile deadman.conf -Scale 20 -LogDir ./logs
+.\deadman.ps1
+.\deadman.ps1 -AsyncMode
+.\deadman.ps1 -Interval 1 -Timeout 3 -Scale 20 -LogDir .\logs
+.\deadman.ps1 -Help
 ```
+
+`-ConfigFile .\deadman.conf` optionally replaces the embedded configuration.
+No adjacent config file is loaded automatically. Follow your organization's
+execution policy; no execution-policy changes are required by the program.
+
+## Requirements and Windows coverage
+
+- Windows PowerShell **5.1** with **.NET Framework 4.7.2 or newer** (4.8 recommended),
+  or a PowerShell **7+** release supported on your operating system.
+- Interactive `powershell.exe` or `pwsh` console (legacy conhost, Windows Terminal,
+  or VS Code terminal). PowerShell ISE and redirected input/output are unsupported
+  and receive an explicit diagnostic.
+- Working DNS, network routes, trusted HTTPS certificate roots and system TLS
+  configuration. Firewalls and ICMP permissions can cause failed probes.
+- No administrator privileges are required for ordinary TCP/HTTP probes.
+
+| Environment | Coverage / prerequisites |
+|---|---|
+| Windows 10 / Windows 11 | Target consoles; manual console validation remains required |
+| Windows Server 2016 | Ensure Windows PowerShell 5.1 and .NET prerequisites; manual validation required |
+| Windows Server 2012 | Install WMF 5.1 and a supported .NET Framework first; manual validation required |
+| Windows Server 2022 / 2025 | Automated Pester CI on Windows PowerShell 5.1 and PowerShell 7 |
+| macOS / Linux with PowerShell 7 | Same .NET probe and console APIs; not proof of legacy Windows compatibility |
+
+CI on Server 2022/2025 is **not** a substitute for testing the actual Windows
+10/11/Server 2012/2016 machines and their console hosts. PowerShell 7 releases have
+their own OS support boundaries; this project does not extend them. Old systems
+also need appropriate patches, TLS settings and certificate roots for modern
+HTTPS sites. There is no insecure TLS bypass.
+
+### No garbled terminal characters
+
+The script, help and UI are printable ASCII English. RTT history uses digits
+`1..8`, not Unicode blocks. No `chcp`, font change, encoding mutation or ANSI
+support is required. Console colors/encoding are left unchanged. Only console
+cursor visibility (Windows) and Ctrl+C handling are changed while running,
+then restored in `finally`.
+
+## Targets
+
+The embedded block and optional UTF-8 config file use the **same strict parser**:
+
+```text
+# name        address                         options
+gateway       192.0.2.1
+loopback-v6   ::1
+dns           dns.example.com                  via=icmp
+---
+database      db.example.com                   via=tcp port=1433
+health        http://localhost:8080/health
+website       https://example.com/              via=https
+```
+
+- Space or tab delimited: `name address [via=protocol] [port=number]`.
+- Names must be unique (case-insensitive), 1..64 ASCII letters, digits, `_`, `-`
+  or `.`, beginning with a letter/digit. Trailing dots, Windows device names
+  and path characters are rejected so names are safe log filenames.
+- ICMP is the default for hostnames and IPv4/IPv6 literals. TCP requires
+  `via=tcp port=1..65535`. TCP is a full connect check, not a raw SYN probe.
+- An absolute `http://` or `https://` URL selects HTTP/HTTPS automatically.
+  An explicit `via=http`/`via=https` must match the URL scheme. Put HTTP ports
+  in the URL. IPv6 URLs use brackets, for example `http://[::1]:8080/`.
+  Credentials embedded in URLs are rejected.
+- `---` (three or more hyphens) adds a group separator, which counts as a
+  viewport row. Blank lines and full-line `#` comments are ignored.
+  `; # comment` is also supported after a target. URL `#fragment` is preserved.
+- Unsupported SSH/relay, SNMP, source/interface, netns, VRF and unknown options
+  **fail with source and line context**. Invalid ports/URLs, duplicate options,
+  missing addresses and configurations without real targets also fail.
+  This is intentionally stricter than the old parser; unsupported features
+  no longer silently fall back to ICMP.
+
+## Probes and timing
+
+| Protocol | Success | Measured duration |
+|---|---|---|
+| ICMP | Echo reply with `Success` status | Reply's round-trip time |
+| TCP | Connection established | DNS and TCP connect, including address retries |
+| HTTP / HTTPS | **Final 200..399** response | GET through final response headers, including DNS, TCP, TLS and redirects |
+
+HTTP uses `ResponseHeadersRead`: it does **not** download or wait for the full
+response body. HTTP 400..599 is a failed probe with status shown in the UI/log.
+Automatic redirects are limited to **5**. At the limit, runtimes may return a
+final 3xx (successful by the stated status rule) or report a redirect error.
+HTTPS uses ordinary platform certificate validation and TLS defaults; no global
+certificate callbacks, global TLS changes or bypass switches are used.
+
+Each probe has its own deadline (default **3 seconds**, including DNS). Completed
+tasks are polled individually, never with `WaitAll`, so one slow target does not
+inflate another's RTT. TCP/HTTP timing has the main-loop polling granularity
+(normally about 10 ms; host load can add scheduling delay).
+
+Default mode probes targets sequentially. `-AsyncMode` starts all targets in a
+round concurrently. `-Interval` (default **1 second**) is the minimum spacing
+between round starts, not an extra delay after a slow round. Rounds never overlap.
+Both modes poll keyboard input and resize while probes are pending.
+
+Some old .NET DNS operations cannot be promptly cancelled. On timeout/reset their
+results are discarded, owned network resources are closed, and at most **one**
+unfinished task is retained per target. That target reports
+`Previous probe still finishing` rather than accumulating new work. Late faults
+are observed and late HTTP responses disposed before retrying.
+
+## Display and controls
+
+| Key | Action |
+|---|---|
+| Up / Down | Scroll the **target list**, not RTT history |
+| R | Cancel the current round and reset every target's statistics |
+| Q / Ctrl+C | Stop probing, dispose owned resources and restore console state |
+
+Headings and the visible row range remain fixed; all targets continue to be
+probed even when offscreen. Separators scroll with the target list. Resizing
+clamps the offset, clears stale rows and clips narrow screens. Address columns
+are shown at 110+ columns; compact screens prioritize statistics. Very short
+windows show an enlargement hint but still accept keys. Rendering leaves the
+last column/row unused to avoid console auto-scroll.
+
+`LOSS%` counts failed sends; `AVG` averages **successful** RTTs only; `SNT` counts
+completed probes (including failures). Current RTT/TTL are cleared on failure,
+and the failure detail or HTTP status replaces stale RTT. Pending probes show
+`>`; `-BlinkArrow` blinks this marker.
+
+History is newest first, bounded to the latest **256** results per target:
+`min(8, floor(RTT / Scale) + 1)` for success, `X` for failure.
+With `-Scale 10`, 0..<10 ms is `1`, 10..<20 is `2`, and 70+ is `8`.
 
 ## Parameters
 
-| Parameter | Alias | Type | Description |
-|-----------|-------|------|-------------|
-| `-ConfigFile` | | string | Configuration file path (required) |
-| `-Scale` | `-s` | int | RTT bar chart scale, default 10 (milliseconds) |
-| `-AsyncMode` | `-a` | switch | Enable async ping mode |
-| `-BlinkArrow` | `-b` | switch | Blink arrow indicator in async mode |
-| `-LogDir` | `-l` | string | Log directory path |
+| Parameter | Default | Description |
+|---|---|---|
+| `-ConfigFile` | Embedded targets | Optional config file; also accepted positionally |
+| `-Scale`, `-s` | 10 | Positive integer RTT bucket width in milliseconds |
+| `-Interval` | 1 | Round-start interval, 0.01..86400 seconds |
+| `-Timeout` | 3 | Per-probe deadline, 0.01..86400 seconds |
+| `-AsyncMode`, `-a` | Off | Concurrent probes |
+| `-BlinkArrow`, `-b` | Off | Blink pending probe markers |
+| `-LogDir`, `-l` | None | Append per-target `<name>.jsonl` logs |
+| `-Help`, `-h` | Off | Show help (`--help` is also accepted) |
 
-## Configuration File Format
+Each JSON log line contains a timestamp with UTC offset, target name/address,
+protocol, success, RTT, average, sends, losses, HTTP status and failure detail.
+Log write failures stop monitoring with an error rather than silently losing
+data. Logs can contain internal addresses/URLs; protect them appropriately.
 
-The configuration file format is fully compatible with the [original deadman](https://github.com/upa/deadman):
+## Development and verification
 
-```conf
-#
-# deadman configuration file
-# Format: name    address    [options]
-#
-
-# === Basic targets ===
-googleDNS       8.8.8.8
-quad9           9.9.9.9
-
-# === Separator (use --- or more hyphens) ===
----
-
-# === IPv6 targets ===
-googleDNS-v6    2001:4860:4860::8888
-
-# === Specify source interface ===
-local-eth0      192.168.1.1     source=eth0
-
-# === TCP ping targets ===
-web-https       10.0.0.1        via=tcp port=443
-web-http        10.0.0.2        via=tcp port=80
-```
-
-### Supported Options
-
-| Option | Description |
-|--------|-------------|
-| `source=interface` | Specify the source network interface for ping |
-| `via=tcp` | Use TCP SYN ping instead of ICMP |
-| `port=number` | TCP port number (requires `via=tcp`) |
-
-> **Note**: The original advanced options such as SSH relay (`relay=`), SNMP (`via=snmp`), netns, and VRF are parsed but not used in this version. They will not produce errors.
-
-## Key Bindings
-
-| Key | Action |
-|-----|--------|
-| `r` | Reset all target statistics |
-| `q` | Quit the program |
-
-## Running Tests
-
-Uses [Pester 5](https://pester.dev/) test framework:
+Pester and PSScriptAnalyzer are **development-only** dependencies:
 
 ```powershell
-# Install Pester (if not already installed)
-Install-Module -Name Pester -MinimumVersion 5.0 -Force -Scope CurrentUser
-
-# Run all tests
-Invoke-Pester ./tests/ -Output Detailed
-
-# Run a specific test file
-Invoke-Pester ./tests/ConfigParser.Tests.ps1 -Output Detailed
-
-# Exclude tests requiring network access
-Invoke-Pester ./tests/ -Output Detailed -ExcludeTag 'Network'
+Install-Module Pester -MinimumVersion 5.0 -Scope CurrentUser
+Install-Module PSScriptAnalyzer -Scope CurrentUser
+Invoke-Pester ./tests/ -Output Detailed -ExcludeTag Network
+Invoke-ScriptAnalyzer ./deadman.ps1 -Severity Error,Warning -ExcludeRule PSAvoidUsingWriteHost
+Invoke-ScriptAnalyzer ./deadman.ps1 -Settings @{
+    IncludeRules = @('PSUseCompatibleSyntax')
+    Rules = @{ PSUseCompatibleSyntax = @{ Enable = $true; TargetVersions = @('5.1') } }
+}
 ```
 
-## Project Structure
+Tests use deterministic task completions and controlled local TCP/HTTP/TLS
+services, not public internet endpoints. Viewport/key tests need no real console.
+The `Fuzz` tag covers generated parser and bounded-state cases. Real ICMP tests
+are tagged `Network` because host permissions/firewalls vary.
 
-```
-deadman-pwsh/
-├── deadman.ps1                  # Single-file program (all classes, parser, UI, and main loop)
-├── deadman.conf                 # Example configuration file
-├── LICENSE                      # MIT License
-├── SECURITY.md                  # Security policy and vulnerability reporting
-├── README.md                    # English documentation
-├── README.zh-tw.md              # Chinese (Traditional) documentation
-├── .github/
-│   ├── CODEOWNERS               # Auto-assign reviewers
-│   ├── dependabot.yml           # Automated dependency updates
-│   ├── pull_request_template.md # PR checklist template
-│   └── workflows/
-│       ├── ci.yml               # CI tests (Windows Server 2022/2025 × PS 5.1/7)
-│       ├── sast.yml             # SAST (CodeQL + PSScriptAnalyzer)
-│       ├── fuzzing.yml          # Fuzz testing (property-based)
-│       ├── scorecard.yml        # OpenSSF Scorecard analysis
-│       ├── release.yml          # Release with SLSA provenance
-│       └── pr-assign.yml        # Auto-assign PR assignee/reviewer
-└── tests/
-    ├── ConfigParser.Tests.ps1   # Config parser unit tests
-    ├── ConsoleUI.Tests.ps1      # Console UI unit tests
-    ├── PingTarget.Tests.ps1     # PingTarget unit tests
-    ├── Integration.Tests.ps1    # Integration tests
-    ├── WindowsCompat.Tests.ps1  # Windows compatibility tests
-    └── Fuzz.Tests.ps1           # Fuzz / property-based tests
-```
+Before delivery, manually check on the actual target Windows machines:
+launch with only the script, each protocol including trusted/untrusted HTTPS,
+Up/Down with more targets than rows, slow DNS/probes while scrolling, resize to
+narrow/short windows, reset while busy, quit/Ctrl+C, and original console state.
+Record the exact OS, PowerShell/.NET versions and console host; do not infer
+this coverage from the CI runner names.
 
-> **Note**: `deadman.ps1` is fully self-contained — just download this single file and `deadman.conf` to get started.
+CI retains Windows Server 2022/2025 x PowerShell 5.1/7. Actions are SHA-pinned.
+Development delivery uses `develop` -> PR to protected `main`, requires the
+configured CI checks and review, and never bypasses protection.
+Release archives may include optional config/docs, but users need only the script.
 
-## CI/CD & Security
+## License and acknowledgements
 
-| Workflow | Purpose | Schedule |
-|----------|---------|----------|
-| **CI** | Pester tests on Windows Server 2022/2025 × PS 5.1/7 (4 matrix) | Push/PR |
-| **SAST** | CodeQL (Actions security) + PSScriptAnalyzer (SARIF → Code Scanning) | Push/PR + Weekly |
-| **Fuzzing** | 20 property-based fuzz tests (injection, Unicode, edge cases) | Push/PR + Weekly |
-| **Scorecard** | OpenSSF Scorecard analysis → scorecard.dev | Push + Weekly |
-| **Release** | Build zip + SHA-256 + SLSA provenance (Sigstore) | Tag push (`yyyymmdd`) |
-| **PR Auto-Assign** | Auto-assign assignee + CODEOWNERS reviewer | PR open/reopen |
-
-### Branch Protection (main)
-
-- Require 1 PR review approval (CODEOWNERS enforced)
-- Require 4 CI status checks to pass
-- Dismiss stale reviews on new commits
-- No force push / branch deletion
-- Conversation resolution required
-
-### Releasing
-
-Create a date-based tag to trigger a release:
-
-```bash
-git tag -a 20260419 -m "Release 20260419"
-git push origin 20260419
-```
-
-The release workflow will:
-1. Build a zip archive (`deadman-pwsh-20260419.zip`)
-2. Generate SHA-256 checksums
-3. Create SLSA provenance attestation (`.sigstore.json`)
-4. Publish to GitHub Releases
-
-Verify a release:
-
-```bash
-sha256sum -c checksums-sha256.txt
-gh attestation verify deadman-pwsh-20260419.zip -o pichuang
-```
-
-### Security
-
-See [SECURITY.md](SECURITY.md) for vulnerability reporting policy.
-
-## Differences from Original
-
-| Feature | Original (Python) | This Version (PowerShell) |
-|---------|-------------------|---------------------------|
-| Language | Python 3 + curses | PowerShell 5.1+ |
-| UI Framework | curses | System.Console API |
-| Ping Implementation | subprocess (ping command) | Test-Connection Cmdlet |
-| Async | asyncio | ThreadJob (PS7+) / Start-Job (PS5.1) |
-| SSH Relay | ✅ | ❌ (config compatible, but not used) |
-| SNMP Ping | ✅ | ❌ |
-| RouterOS API | ✅ | ❌ |
-| netns / VRF | ✅ | ❌ |
-| TCP Ping (hping3) | ✅ | ✅ (Windows: tnc, macOS/Linux: hping3) |
-| SIGHUP Reload | ✅ | ❌ (SIGHUP not supported on Windows) |
-
-## License
-
-MIT License — same as the original
-
-## Acknowledgements
-
-- [upa/deadman](https://github.com/upa/deadman) — Original Python version
-- Original design and implementation: Interop Tokyo ShowNet NOC team
+[MIT License](LICENSE), with upstream attribution preserved.
+Original Python design: [upa/deadman](https://github.com/upa/deadman) and the
+Interop Tokyo ShowNet NOC team. See [SECURITY.md](SECURITY.md) for private
+vulnerability reporting.

@@ -27,10 +27,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - name: Set console to UTF-8
-        shell: cmd
-        run: chcp 65001
-
       - name: Install Pester 5
         shell: pwsh
         run: |
@@ -40,11 +36,18 @@ jobs:
           Write-Host "Pester version: $((Get-Module Pester).Version)"
           Write-Host "PowerShell version: $($PSVersionTable.PSVersion)"
 
-      - name: Install ThreadJob module
+      - name: Analyze script and PowerShell 5.1 syntax
         shell: pwsh
         run: |
-          if (-not (Get-Module -Name ThreadJob -ListAvailable -ErrorAction SilentlyContinue)) {
-            Install-Module -Name ThreadJob -Force -Scope CurrentUser -SkipPublisherCheck
+          Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+          $results = @(Invoke-ScriptAnalyzer ./deadman.ps1 -Severity Error,Warning -ExcludeRule PSAvoidUsingWriteHost)
+          $results += @(Invoke-ScriptAnalyzer ./deadman.ps1 -Settings @{
+            IncludeRules = @('PSUseCompatibleSyntax')
+            Rules = @{ PSUseCompatibleSyntax = @{ Enable = $true; TargetVersions = @('5.1') } }
+          })
+          if ($results.Count -gt 0) {
+            $results | Format-Table RuleName, Line, Message -AutoSize
+            throw 'Script analysis failed.'
           }
 
       - name: Run Pester tests
@@ -159,10 +162,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
-      - name: Set console to UTF-8
-        shell: cmd
-        run: chcp 65001
 
       - name: Install Pester 5
         shell: powershell
