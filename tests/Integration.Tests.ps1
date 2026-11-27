@@ -66,7 +66,7 @@ Describe 'Native asynchronous probe lifecycle' {
         @{ Status = 503; Expected = $false }
     ) {
         param($Status, $Expected)
-        $target = (Read-PingPongManConfig -Text "local http://127.0.0.1:$port/test")[0]
+        $target = (Read-PingPongManConfig -Text "local http://127.0.0.1/test?value=a%2Fb via=http port=$port")[0]
         $entry = New-Probe $target -TimeoutSeconds 2
         $accepted = $listener.AcceptTcpClientAsync()
         $request = [System.Text.StringBuilder]::new()
@@ -79,6 +79,7 @@ Describe 'Native asynchronous probe lifecycle' {
                     $count = $stream.Read($buffer, 0, $buffer.Length)
                     $null = $request.Append([Text.Encoding]::ASCII.GetString($buffer, 0, $count))
                     if ($request.ToString().Contains("`r`n`r`n")) {
+                        $request.ToString() | Should -Match '^GET /test\?value=a%2Fb HTTP/1.1'
                         # Intentionally omit the advertised response body.
                         $bytes = [Text.Encoding]::ASCII.GetBytes("HTTP/1.1 $Status Test`r`nContent-Length: 100000`r`nConnection: close`r`n`r`n")
                         $stream.Write($bytes, 0, $bytes.Length)
@@ -328,6 +329,53 @@ Describe 'Shared sequential and concurrent scheduler' {
         Invoke-MonitorTick $monitor
         $targets[0].Sent | Should -Be 1
         $targets[2].Sent | Should -Be 1
+    }
+    It 'schedules the exact five-line sample and separates same-name HTTPS state, history and logs' {
+        $text = @'
+blackair-icmp  ifconfig.blackair.io
+blackair-tcp   ifconfig.blackair.io          via=tcp port=443
+blackair-http  http://ifconfig.blackair.io/ via=http port=80
+blackair-https https://ifconfig.blackair.io/ via=https port=443
+blackair-https https://ifconfig.blackair.io/ip via=https port=443
+'@
+        Mock New-Probe {
+            param($Target)
+            New-TestPending $Target -Phase tcp -TimeoutMs 30000
+        }
+        $targets = Read-PingPongManConfig -Text $text
+        $monitor = New-MonitorState $targets.ToArray() -Concurrent $true -IntervalSeconds 60 -LogDirectory $TestDrive
+        Invoke-MonitorTick $monitor
+        $monitor.Active.Count | Should -Be 5
+        Should -Invoke New-Probe -Times 5 -Exactly
+        for ($i = 0; $i -lt $monitor.Active.Count; $i++) {
+            $entry = $monitor.Active[$i]
+            if ($entry.Target.Protocol -in @('http', 'https')) {
+                $entry.Phase = 'http'
+                $status = [System.Net.HttpStatusCode]::OK
+                if ($i -eq 4) { $status = [System.Net.HttpStatusCode]::NotFound }
+                $entry.Completion.SetResult([System.Net.Http.HttpResponseMessage]::new($status))
+            } else {
+                $entry.Completion.SetResult($null)
+            }
+        }
+        Invoke-MonitorTick $monitor
+        $targets[3].Name | Should -Be $targets[4].Name
+        $targets[3].State | Should -BeTrue
+        $targets[4].State | Should -BeFalse
+        $targets[3].ResultHistory.Count | Should -Be 1
+        $targets[3].ResultHistory[0] | Should -Match '^[1-8]$'
+        $targets[4].ResultHistory[0] | Should -Be 'X'
+        $first = @(Get-Content (Join-Path $TestDrive 'blackair-https.jsonl') | ConvertFrom-Json)
+        $second = @(Get-Content (Join-Path $TestDrive 'blackair-https-2.jsonl') | ConvertFrom-Json)
+        $first.Count | Should -Be 1
+        $second.Count | Should -Be 1
+        $first[0].Address | Should -Be 'https://ifconfig.blackair.io/'
+        $second[0].Address | Should -Be 'https://ifconfig.blackair.io/ip'
+        $first[0].StatusCode | Should -Be 200
+        $second[0].StatusCode | Should -Be 404
+        $targets[4].Refresh()
+        $targets[3].Sent | Should -Be 1
+        $targets[4].Sent | Should -Be 0
     }
     It 'resets in-flight work without consuming old results or growing pending tasks' {
         $monitor = New-MonitorState $targets -Concurrent $true -IntervalSeconds 60

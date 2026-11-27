@@ -67,12 +67,13 @@ RTT 歷史使用數字 `1..8` 而非 Unicode 方塊；
 ```text
 blackair-icmp  ifconfig.blackair.io
 blackair-tcp   ifconfig.blackair.io          via=tcp port=443
-blackair-http  http://ifconfig.blackair.io/
-blackair-https https://ifconfig.blackair.io/
+blackair-http  http://ifconfig.blackair.io/ via=http port=80
+blackair-https https://ifconfig.blackair.io/ via=https port=443
+blackair-https https://ifconfig.blackair.io/ip via=https port=443
 ```
 
 2026 年 11 月 27 日從開發環境實測：收到 ICMP echo reply、成功連線 TCP 443，
-HTTP 與 HTTPS 的最終回應皆為 **200**，HTTPS 保留正常憑證驗證。
+HTTP 與 HTTPS（包含 `/ip`）的最終回應皆為 **200**，HTTPS 保留正常憑證驗證。
 公開服務可用性與各環境的 ICMP／TLS 政策不同，這些範例不是成功保證，也不是自動測試的外部相依。
 
 ### 故意失敗的範例
@@ -116,14 +117,19 @@ website       https://example.com/              via=https
 ```
 
 - 以空格或 Tab 分隔：`name address [via=protocol] [port=number]`。
-- 名稱不分大小寫且不得重複，長度 1..64；僅接受 ASCII 字母、數字、`_`、`-`、`.`，
+- 名稱為顯示標籤，可以重複；每列的探測、統計與歷史互相獨立，
+  包括上面兩個同名 `blackair-https` URL。長度 1..64，僅接受 ASCII 字母、數字、`_`、`-`、`.`，
   並以字母或數字開頭。結尾句點、Windows 裝置保留名稱及路徑字元會被拒絕，
   確保名稱可安全用於日誌檔名。
 - 主機名稱、IPv4／IPv6 位址預設使用 ICMP；TCP 必須指定 `via=tcp port=1..65535`。
   TCP 檢查會建立完整連線，不是 raw SYN 探測。
 - 完整 `http://` 或 `https://` URL 會自動選擇協定；
   若明確指定 `via=http`／`via=https`，必須與 URL scheme 一致。
-  HTTP 連接埠寫在 URL 內；IPv6 URL 使用方括號，例如 `http://[::1]:8080/`。
+  HTTP 連接埠可寫在 URL 內，也可使用 `port=1..65535`。
+  URL 未明確寫出連接埠時，由選項指定實際請求連接埠；
+  兩處都有指定時必須一致，即使 URL 明確寫的是預設連接埠也不例外，
+  衝突時會附來源及行號報錯。路徑、query 與 fragment 均保留。
+  IPv6 URL 使用方括號，例如 `http://[::1]:8080/`。
   不接受內含帳號密碼的 URL。
 - `---`（三個以上連字號）加入群組分隔列，也占一列捲動範圍。
   空白行與整行 `#` 註解會被忽略；目標後方可加 `; # comment`，URL 的 `#fragment` 會保留。
@@ -190,11 +196,15 @@ TCP／HTTP 計時受主迴圈輪詢粒度影響，通常約 10 ms，主機負載
 | `-Timeout` | 3 | 單次探測期限，0.01..86400 秒 |
 | `-AsyncMode`、`-a` | 關閉 | 同時探測多個目標 |
 | `-BlinkArrow`、`-b` | 關閉 | 閃爍待完成探測標記 |
-| `-LogDir`、`-l` | 無 | 每個目標附加寫入 `<name>.jsonl` 日誌 |
+| `-LogDir`、`-l` | 無 | 每個目標附加寫入 JSONL 日誌，同名標籤使用不同檔名 |
 | `-Help`、`-h` | 關閉 | 顯示說明，也接受 `--help` |
 
 每行 JSON 日誌包含帶 UTC offset 的時間戳、目標名稱／位址、協定、成功與否、
 RTT、平均值、探測次數、失敗次數、HTTP 狀態及錯誤細節。
+同名目標第一列使用 `<name>.jsonl`，後續列依設定順序加上 `-2`、`-3` 等尾碼，
+並跳過任何設定標籤已占用的名稱（不分大小寫）。
+因此兩個 HTTPS 範例分別寫入 `blackair-https.jsonl` 與 `blackair-https-2.jsonl`，
+不會混用記錄；跨次執行附加日誌時，請維持設定順序一致。
 寫入失敗會停止監控並報錯，不會默默丟失資料。
 日誌可能含內部位址與 URL，請妥善保護。
 
@@ -223,7 +233,8 @@ Invoke-ScriptAnalyzer ./pingpongman.ps1 -Settings @{
 請記錄實際作業系統、PowerShell／.NET 版本與終端主機，不可由 CI runner 名稱推論覆蓋範圍。
 
 CI 保留 Windows Server 2022／2025 × PowerShell 5.1／7，GitHub Actions 均以 SHA 固定版本。
-開發採 `develop` → PR 至受保護的 `main`，通過既定 CI 與審核後才能合併，不繞過保護。
+開發採 `develop` → PR 至受保護的 `main`，須通過四項 Windows CI。
+目前個人開發流程不強制審核；合併前仍應確認 GitHub 當下的保護設定，不得繞過。
 Release 壓縮檔包含程式、選用設定／文件與 MIT 授權。
 使用者只需要程式單檔，其內已包含版權與授權文字。
 

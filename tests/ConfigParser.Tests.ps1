@@ -27,6 +27,55 @@ Describe 'Strict configuration parser' {
         $targets[2].TcpPort | Should -Be 65535
     }
 
+    It 'accepts the exact five-line Blackair configuration without renaming display names' {
+        $text = @'
+blackair-icmp  ifconfig.blackair.io
+blackair-tcp   ifconfig.blackair.io          via=tcp port=443
+blackair-http  http://ifconfig.blackair.io/ via=http port=80
+blackair-https https://ifconfig.blackair.io/ via=https port=443
+blackair-https https://ifconfig.blackair.io/ip via=https port=443
+'@
+        $targets = Read-PingPongManConfig -Text $text
+        $targets.Count | Should -Be 5
+        ($targets.Protocol -join ',') | Should -Be 'icmp,tcp,http,https,https'
+        $targets[1].TcpPort | Should -Be 443
+        $targets[3].Name | Should -Be 'blackair-https'
+        $targets[4].Name | Should -Be 'blackair-https'
+        $targets[3].Address | Should -Be 'https://ifconfig.blackair.io/'
+        $targets[4].Address | Should -Be 'https://ifconfig.blackair.io/ip'
+    }
+
+    It 'applies HTTP port options without losing IPv6, escaped paths, query or fragment: <Url>' -TestCases @(
+        @{ Url = 'http://example.com/a%2Fb?next=%2Fip#result'; Via = 'http'; Port = 8080; Expected = 'http://example.com:8080/a%2Fb?next=%2Fip#result' }
+        @{ Url = 'https://[::1]/ip?q=a%2Bb'; Via = 'https'; Port = 8443; Expected = 'https://[::1]:8443/ip?q=a%2Bb' }
+        @{ Url = 'http://[::1]:8080/ip'; Via = 'http'; Port = 8080; Expected = 'http://[::1]:8080/ip' }
+        @{ Url = 'https://example.com:443/ip'; Via = 'https'; Port = 443; Expected = 'https://example.com:443/ip' }
+    ) {
+        param($Url, $Via, $Port, $Expected)
+        $target = (Read-PingPongManConfig -Text "web $Url via=$Via port=$Port")[0]
+        $actualUri = [Uri]$target.Address
+        $expectedUri = [Uri]$Expected
+        $actualUri.Scheme | Should -Be $expectedUri.Scheme
+        $actualUri.Host | Should -Be $expectedUri.Host
+        $actualUri.Port | Should -Be $Port
+        $actualUri.PathAndQuery | Should -Be $expectedUri.PathAndQuery
+        $actualUri.Fragment | Should -Be $expectedUri.Fragment
+    }
+
+    It 'keeps duplicate display names independent and avoids case-insensitive log filename collisions' {
+        $targets = Read-PingPongManConfig -Text "same http://localhost/`nSAME http://localhost/ip`n---`nsame-2 ::1`nsame http://localhost/other"
+        ($targets | Where-Object { $_ -is [PingTarget] }).Count | Should -Be 4
+        $targets[0].LogName | Should -Be 'same'
+        $targets[1].LogName | Should -Be 'SAME-3'
+        $targets[3].LogName | Should -Be 'same-2'
+        $targets[4].LogName | Should -Be 'same-4'
+        $result = [PingResult]::new()
+        $targets[1].ConsumeResult($result)
+        $targets[1].Loss | Should -Be 1
+        $targets[0].Sent | Should -Be 0
+        $targets[4].ResultHistory.Count | Should -Be 0
+    }
+
     It 'rejects malformed or unsupported settings with source and line context: <Line>' -TestCases @(
         @{ Line = 'host' }
         @{ Line = 'host localhost source=eth0' }
@@ -49,7 +98,13 @@ Describe 'Strict configuration parser' {
         @{ Line = 'host http://example.com:99999/' }
         @{ Line = 'host http://example.com:0/' }
         @{ Line = 'host http://user:password@example.com/' }
-        @{ Line = 'host http://example.com/ port=80' }
+        @{ Line = 'host http://example.com/ port=0' }
+        @{ Line = 'host https://example.com/ port=65536' }
+        @{ Line = 'host http://example.com/ port=abc' }
+        @{ Line = 'host http://example.com:8080/ip port=80' }
+        @{ Line = 'host http://example.com:80/ip port=8080' }
+        @{ Line = 'host https://example.com:443/ip port=8443' }
+        @{ Line = 'host https://[::1]:8443/ip port=443' }
         @{ Line = 'host https:///' }
         @{ Line = 'host ftp://example.com/' }
         @{ Line = 'host 999.1.1.1' }
@@ -63,8 +118,7 @@ Describe 'Strict configuration parser' {
         { Read-PingPongManConfig -Text $text } | Should -Throw '*EmbeddedConfig:2:*'
     }
 
-    It 'rejects duplicates and configurations with no real targets' {
-        { Read-PingPongManConfig -Text "same localhost`nSAME ::1" } | Should -Throw '*Duplicate target name*'
+    It 'rejects configurations with no real targets' {
         foreach ($text in @('', '# comment', "---`n---")) {
             { Read-PingPongManConfig -Text $text } | Should -Throw '*No monitoring targets*'
         }
