@@ -1,33 +1,65 @@
 BeforeAll { . "$PSScriptRoot/../pingpongman.ps1" }
 
 Describe 'Single-file startup and portability' {
-    It 'loads embedded targets with only the script present and no encoding side effects' {
-        $copy = Join-Path $TestDrive 'standalone.ps1'
+    It 'starts with only the script and uses its Setting targets (edited: <Edited>)' -TestCases @(
+        @{ Edited = $false }
+        @{ Edited = $true }
+    ) {
+        param($Edited)
+        $directory = Join-Path $TestDrive "standalone-$Edited"
+        $null = New-Item -ItemType Directory -Path $directory
+        $copy = Join-Path $directory 'pingpongman.ps1'
         Copy-Item -LiteralPath "$PSScriptRoot/../pingpongman.ps1" -Destination $copy
+        $expected = Read-PingPongManConfig -Path "$PSScriptRoot/../pingpongman.conf"
+        if ($Edited) {
+            $source = Get-Content -LiteralPath $copy -Raw
+            $source = $source.Replace('localhost 127.0.0.1', 'edited-localhost 127.0.0.1')
+            Set-Content -LiteralPath $copy -Value $source -Encoding UTF8
+            $expected[0].Name = 'edited-localhost'
+        }
+        $expectedRows = @($expected | Where-Object { $_ -is [PingTarget] } | ForEach-Object {
+            "$($_.Name)|$($_.Address)|$($_.Protocol)|$($_.TcpPort)"
+        })
         $shell = [PowerShell]::Create()
         try {
             $null = $shell.AddScript({
                 param($Path)
                 $encoding = [Console]::OutputEncoding.CodePage
-                . $Path
-                $targets = Read-PingPongManConfig -Text $script:EmbeddedConfig
-                [pscustomobject]@{
-                    Count = @($targets | Where-Object { $_ -is [PingTarget] }).Count
-                    EncodingUnchanged = [Console]::OutputEncoding.CodePage -eq $encoding
+                function Get-TestStartup {
+                    param($Targets, $Concurrent, $IntervalSeconds, $TimeoutSeconds, $RttScale, $LogDirectory, $Blink)
+                    [pscustomobject]@{
+                        Rows = @($Targets | Where-Object { $_.Name } | ForEach-Object {
+                            "$($_.Name)|$($_.Address)|$($_.Protocol)|$($_.TcpPort)"
+                        })
+                        Concurrent = $Concurrent; Interval = $IntervalSeconds; Timeout = $TimeoutSeconds
+                        Scale = $RttScale; LogDirectory = $LogDirectory; Blink = $Blink
+                    }
                 }
+                # Alias precedence replaces only the console loop, not startup/config selection.
+                Set-Alias -Name Start-PingPongMan -Value Get-TestStartup
+                Set-Location -LiteralPath (Split-Path -Parent $Path)
+                $startup = & $Path
+                $startup | Add-Member -NotePropertyName EncodingUnchanged `
+                    -NotePropertyValue ([Console]::OutputEncoding.CodePage -eq $encoding) -PassThru
             }).AddArgument($copy)
             $result = $shell.Invoke()
             $shell.HadErrors | Should -BeFalse
-            $result[0].Count | Should -BeGreaterThan 0
+            $result.Count | Should -Be 1
+            ($result[0].Rows -join "`n") | Should -Be ($expectedRows -join "`n")
+            $result[0].Interval | Should -Be 1
+            $result[0].Timeout | Should -Be 3
             $result[0].EncodingUnchanged | Should -BeTrue
         } finally { $shell.Dispose() }
-        Test-Path (Join-Path $TestDrive 'pingpongman.conf') | Should -BeFalse
+        @(Get-ChildItem -LiteralPath $directory -Force).Count | Should -Be 1
+        Test-Path (Join-Path $directory 'pingpongman.conf') | Should -BeFalse
     }
-    It 'starts with embedded configuration when ConfigFile is omitted' {
+    It 'replaces embedded targets only when ConfigFile is explicitly provided' {
+        $path = Join-Path $TestDrive 'selected.conf'
+        Set-Content -LiteralPath $path -Value 'selected 127.0.0.2'
         Mock Start-PingPongMan {}
-        & "$PSScriptRoot/../pingpongman.ps1"
+        & "$PSScriptRoot/../pingpongman.ps1" -ConfigFile $path
         Should -Invoke Start-PingPongMan -Times 1 -Exactly -ParameterFilter {
-            $Targets.Count -gt 0 -and $Targets[0].Address -eq '127.0.0.1' -and
+            $Targets.Count -eq 1 -and $Targets[0].Name -eq 'selected' -and $Targets[0].Address -eq '127.0.0.2' -and
             $IntervalSeconds -eq 1 -and $TimeoutSeconds -eq 3
         }
     }
