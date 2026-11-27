@@ -241,8 +241,7 @@ Describe 'Independent completions and bounded cancellation' {
         Update-Probe $fast
         $fast.Result.Success | Should -BeTrue
         $duration = $fast.Result.RTT
-        Start-Sleep -Milliseconds 120
-        Update-Probe $slow
+        Wait-TestProbe $slow
         $slow.Result.Detail | Should -Be 'Timeout'
         $fast.Result.RTT | Should -Be $duration
         $fast.Clock.IsRunning | Should -BeFalse
@@ -251,8 +250,7 @@ Describe 'Independent completions and bounded cancellation' {
     It 'retains at most one uncancellable DNS task per target until its late fault is observed' {
         $target = [PingTarget]::new('slow', 'localhost')
         $entry = New-TestPending $target -TimeoutMs 1
-        Start-Sleep -Milliseconds 10
-        Update-Probe $entry
+        Wait-TestProbe $entry
         $entry.Done | Should -BeTrue
         $entry.Result.Success | Should -BeFalse
         [object]::ReferenceEquals($target.Pending, $entry) | Should -BeTrue
@@ -265,8 +263,7 @@ Describe 'Independent completions and bounded cancellation' {
     It 'disposes a late HTTP response after cancellation without a second result' {
         $target = [PingTarget]::new('late', 'http://localhost/')
         $entry = New-TestPending $target -Phase http -TimeoutMs 1
-        Start-Sleep -Milliseconds 10
-        Update-Probe $entry
+        Wait-TestProbe $entry
         $response = [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]::OK)
         $response.Content = [System.Net.Http.StringContent]::new('body')
         $entry.Completion.SetResult($response)
